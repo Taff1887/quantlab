@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { WharfName, PrimaryMode } from "../types";
 import {
   generateAllTrips,
@@ -125,8 +125,26 @@ export default function CommutePlanner() {
   const [sort, setSort] = useState<SortKey>("arrival");
   const [results, setResults] = useState<Results | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [isLive, setIsLive] = useState(false);
+  const [liveTrips, setLiveTrips] = useState<ScheduleTrip[]>([]);
 
-  const allTrips = useMemo(() => generateAllTrips(), []);
+  // Fetch live trips once on mount — used if TFNSW_API_KEY is set
+  useEffect(() => {
+    fetch("/api/transport")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.trips && data.trips.length > 0) {
+          setLiveTrips(data.trips as ScheduleTrip[]);
+          setIsLive(data.isRealtime ?? false);
+        }
+      })
+      .catch(() => { /* fall through to static schedule */ });
+  }, []);
+
+  const allTrips = useMemo(
+    () => liveTrips.length > 0 ? liveTrips : generateAllTrips(),
+    [liveTrips]
+  );
 
   function handlePlan() {
     setExpanded(false);
@@ -190,7 +208,12 @@ export default function CommutePlanner() {
   return (
     <div className="card">
       <div className="mb-4">
-        <h2 className="section-title">🗓️ Commute Planner</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="section-title">🗓️ Commute Planner</h2>
+          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${isLive ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400"}`}>
+            {isLive ? "🟢 Live" : "Schedule"}
+          </span>
+        </div>
         <p className="text-xs text-slate-400 mt-0.5">
           Plan ahead — what time do you need to be at the office?
         </p>
@@ -359,7 +382,7 @@ export default function CommutePlanner() {
           )}
 
           <p className="text-xs text-slate-300 text-center mt-2">
-            Based on TfNSW published timetable
+            {isLive ? "Live TfNSW data" : "TfNSW schedule · add TFNSW_API_KEY for live times"}
           </p>
         </div>
       )}

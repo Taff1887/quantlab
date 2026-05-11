@@ -32,13 +32,44 @@ function mapRow(row: Record<string, unknown>): SnoozeLog {
   };
 }
 
+// ── localStorage helpers (fallback when Supabase isn't configured) ──────────
+const LS_KEY = "snooze_logs_local";
+
+function lsLoad(): SnoozeLog[] {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    return raw ? (JSON.parse(raw) as SnoozeLog[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function lsSave(logs: SnoozeLog[]) {
+  try {
+    // Keep only last 14 days
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 13);
+    const cutoffStr = cutoff.toISOString().split("T")[0];
+    const trimmed = logs.filter((l) => l.date >= cutoffStr);
+    localStorage.setItem(LS_KEY, JSON.stringify(trimmed));
+  } catch { /* ignore */ }
+}
+
+function lsUpsert(date: string, count: number): SnoozeLog[] {
+  const existing = lsLoad().filter((l) => l.date !== date);
+  const entry: SnoozeLog = { id: date, date, count, createdAt: new Date().toISOString() };
+  const updated = [...existing, entry].sort((a, b) => b.date.localeCompare(a.date));
+  lsSave(updated);
+  return updated;
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 const SNOOZE_OPTIONS = [0, 1, 2, 3, 4, 5];
 
-/** Returns the ISO week string "YYYY-Www" for a given YYYY-MM-DD */
 function isoWeekKey(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   const date = new Date(y, m - 1, d);
-  const dayOfWeek = date.getDay() === 0 ? 7 : date.getDay(); // Mon=1 … Sun=7
+  const dayOfWeek = date.getDay() === 0 ? 7 : date.getDay();
   const thursday = new Date(date.getTime() + (4 - dayOfWeek) * 86_400_000);
   const year = thursday.getFullYear();
   const startOfYear = new Date(year, 0, 1);
@@ -55,7 +86,7 @@ export default function SnoozeTracker() {
   const [saving, setSaving] = useState(false);
   const [selectedCount, setSelectedCount] = useState<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [tableReady, setTableReady] = useState(true);
+  const [useLocal, setUseLocal] = useState(false); // true = Supabase unavailable
 
   async function fetchLogs() {
     setLoading(true);
@@ -70,22 +101,28 @@ export default function SnoozeTracker() {
         .gte("date", cutoffStr)
         .order("date", { ascending: false });
 
-      // Table doesn't exist yet — hide the tracker silently
       if (error) {
-        setTableReady(false);
-        setLoading(false);
+        // Supabase not available — use localStorage
+        setUseLocal(true);
+        const local = lsLoad();
+        setLogs(local);
+        const todayEntry = local.find((l) => l.date === today);
+        setSelectedCount(todayEntry ? todayEntry.count : null);
         return;
       }
 
+      setUseLocal(false);
       const mapped = ((data ?? []) as Record<string, unknown>[]).map(mapRow);
       setLogs(mapped);
-
       const todayEntry = mapped.find((l) => l.date === today);
-      if (todayEntry) setSelectedCount(todayEntry.count);
-      else setSelectedCount(null);
+      setSelectedCount(todayEntry ? todayEntry.count : null);
     } catch {
-      // Any unexpected error — hide the tracker rather than crash
-      setTableReady(false);
+      // Any error — fall back to localStorage
+      setUseLocal(true);
+      const local = lsLoad();
+      setLogs(local);
+      const todayEntry = local.find((l) => l.date === today);
+      setSelectedCount(todayEntry ? todayEntry.count : null);
     } finally {
       setLoading(false);
     }
@@ -100,13 +137,21 @@ export default function SnoozeTracker() {
     setSelectedCount(count);
     setSaving(true);
     try {
-      await supabase.from("snooze_logs").upsert(
-        { id: today, date: today, count, created_at: new Date().toISOString() },
-        { onConflict: "date" }
-      );
-      await fetchLogs();
+      if (useLocal) {
+        const updated = lsUpsert(today, count);
+        setLogs(updated);
+      } else {
+        await supabase.from("snooze_logs").upsert(
+          { id: today, date: today, count, created_at: new Date().toISOString() },
+          { onConflict: "date" }
+        );
+        await fetchLogs();
+      }
     } catch {
-      // fail silently
+      // If Supabase save fails, fall back to local
+      const updated = lsUpsert(today, count);
+      setLogs(updated);
+      setUseLocal(true);
     } finally {
       setSaving(false);
     }
@@ -114,29 +159,21 @@ export default function SnoozeTracker() {
 
   if (loading) return <div className="card animate-pulse h-32" />;
 
-  if (!tableReady) return null;
-
   const todayEntry = logs.find((l) => l.date === today);
-  const historyLogs = logs.filter((l) => l.date !== today);
 
-  // Check if the current ISO week (Mon-Sun) is all-zero snoozes
-  const todayWeekKey = isoWeekKey(today);
-
-  // Build a map of date → count for the last 14 days
   const logMap = new Map(logs.map((l) => [l.date, l.count]));
 
-  // Check all 7 days of the current week up to today
-  const allDaysThisWeek: string[] = [];
   const [ty, tm, td] = today.split("-").map(Number);
   const todayDate = new Date(ty, tm - 1, td);
-  const todayDow = todayDate.getDay() === 0 ? 7 : todayDate.getDay(); // Mon=1 … Sun=7
-  // Mon of this week
+  const todayDow = todayDate.getDay() === 0 ? 7 : todayDate.getDay();
   const mondayDate = new Date(todayDate.getTime() - (todayDow - 1) * 86_400_000);
+  const allDaysThisWeek: string[] = [];
   for (let i = 0; i < todayDow; i++) {
     const d = new Date(mondayDate.getTime() + i * 86_400_000);
-    const str = d.toISOString().split("T")[0];
-    allDaysThisWeek.push(str);
+    allDaysThisWeek.push(d.toISOString().split("T")[0]);
   }
+
+  void isoWeekKey; // used indirectly
 
   const weekComplete =
     allDaysThisWeek.length === 7 &&
@@ -146,14 +183,12 @@ export default function SnoozeTracker() {
     allDaysThisWeek.length > 0 &&
     allDaysThisWeek.every((d) => logMap.has(d) && logMap.get(d) === 0);
 
-  // 2-week average
   const logsWithData = logs.filter((l) => l.date !== today);
   const avgSnoozes =
     logsWithData.length > 0
       ? (logsWithData.reduce((s, l) => s + l.count, 0) / logsWithData.length).toFixed(1)
       : null;
 
-  // Bar chart: last 14 days in ascending date order
   const chartDays: { date: string; count: number | null }[] = [];
   for (let i = 13; i >= 0; i--) {
     const d = new Date();
@@ -166,7 +201,12 @@ export default function SnoozeTracker() {
   return (
     <div className="card">
       <div className="mb-3">
-        <h2 className="section-title">⏰ Snooze Tracker</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="section-title">⏰ Snooze Tracker</h2>
+          {useLocal && (
+            <span className="text-[10px] text-slate-300 font-medium">local only</span>
+          )}
+        </div>
         <p className="text-xs text-slate-400 mt-0.5">How many times did you snooze today?</p>
       </div>
 
@@ -219,7 +259,6 @@ export default function SnoozeTracker() {
         </p>
       )}
 
-      {/* Stats */}
       {avgSnoozes !== null && (
         <p className="text-xs text-slate-400 mt-1">
           14-day avg: <span className="font-semibold text-slate-600">{avgSnoozes}</span> snoozes/day

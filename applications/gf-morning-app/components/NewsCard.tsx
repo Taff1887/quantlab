@@ -8,6 +8,7 @@ interface NewsArticle {
   description: string;
   pubDate: string;
   source: string;
+  isRossGittins: boolean;
 }
 
 function formatPubDate(dateStr: string): string {
@@ -47,17 +48,27 @@ export default function NewsCard() {
   return (
     <div className="card overflow-hidden">
       {/* Gradient header */}
-      <div className="bg-gradient-to-r from-indigo-500 to-sky-500 -mx-4 -mt-4 px-4 pt-4 pb-3 mb-4 rounded-t-2xl">
+      <div className="bg-gradient-to-r from-emerald-600 to-teal-500 -mx-4 -mt-4 px-4 pt-4 pb-3 mb-4 rounded-t-2xl">
         <div className="flex items-center gap-2">
-          <span className="text-xl">⚡</span>
+          <span className="text-xl">📈</span>
           <div>
             <p className="text-xs font-bold text-white uppercase tracking-wide">
-              Energy News
+              Economy News
             </p>
-            <p className="text-xs text-indigo-100">Australia · Renewables</p>
+            <p className="text-xs text-emerald-100">Australia · Markets &amp; Policy</p>
           </div>
         </div>
       </div>
+
+      {/* Ross Gittins special banner */}
+      {article?.isRossGittins && (
+        <div className="mb-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-2.5 flex items-center gap-2">
+          <span className="text-lg">🎉</span>
+          <p className="text-sm font-bold text-amber-800">
+            babe, new Ross Gittins article dropped
+          </p>
+        </div>
+      )}
 
       {loading && (
         <div className="space-y-2 animate-pulse">
@@ -83,9 +94,12 @@ export default function NewsCard() {
             {article.description}
           </p>
           <div className="flex items-center justify-between pt-1">
-            <p className="text-xs text-slate-400">
-              {formatPubDate(article.pubDate)}
-            </p>
+            <div>
+              <p className="text-xs text-slate-400">{formatPubDate(article.pubDate)}</p>
+              {article.source && (
+                <p className="text-xs text-slate-300">{article.source}</p>
+              )}
+            </div>
             <a
               href={article.link}
               target="_blank"

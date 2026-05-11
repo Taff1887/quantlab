@@ -1,23 +1,27 @@
 import type { DayForecast, ClothingRec, UmbrellaRec } from "../types";
 
-// Open-Meteo API — free, no API key, covers Sydney
-// https://open-meteo.com/en/docs
-const OPEN_METEO_URL =
-  "https://api.open-meteo.com/v1/forecast" +
-  "?latitude=-33.8274&longitude=151.2273" +
-  "&hourly=temperature_2m,precipitation_probability,apparent_temperature,weathercode" +
-  "&daily=weathercode,temperature_2m_max,temperature_2m_min,apparent_temperature_max" +
-  "&timezone=Australia%2FSydney" +
-  "&forecast_days=5";
+// Open-Meteo API — free, no API key
+// Fetches both Mosman and CBD then averages to reflect the full commute corridor
+function makeUrl(lat: number, lon: number) {
+  return (
+    "https://api.open-meteo.com/v1/forecast" +
+    `?latitude=${lat}&longitude=${lon}` +
+    "&hourly=temperature_2m,precipitation_probability,apparent_temperature,weathercode" +
+    "&daily=weathercode,temperature_2m_max,temperature_2m_min,apparent_temperature_max" +
+    "&timezone=Australia%2FSydney" +
+    "&forecast_days=5"
+  );
+}
 
-// In-memory cache so we don't hammer the API on every render
+const MOSMAN_URL = makeUrl(-33.8274, 151.2273);
+const CBD_URL    = makeUrl(-33.8688, 151.2093);
+
 let _cache: { data: DayForecast[]; at: number } | null = null;
-const CACHE_MS = 30 * 60 * 1000; // 30 minutes
+const CACHE_MS = 30 * 60 * 1000; // 30 min
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-// WMO weather code → our condition string
 function wmoToCondition(code: number): string {
   if (code === 0) return "Sunny";
   if (code <= 2) return "Partly Cloudy";
@@ -34,38 +38,51 @@ function avg(arr: number[]): number {
   return Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
 }
 
+function avgTwo(a: number, b: number): number {
+  return Math.round((a + b) / 2);
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseForecast(data: any): DayForecast[] {
+function parseForecast(mosman: any, cbd: any): DayForecast[] {
   const days: DayForecast[] = [];
 
   for (let i = 0; i < 5; i++) {
-    const dateStr: string = data.daily.time[i];
-    const dt = new Date(dateStr + "T12:00:00"); // noon to avoid timezone edge cases
+    const dateStr: string = mosman.daily.time[i];
+    const dt = new Date(dateStr + "T12:00:00");
     const dow = dt.getDay();
 
-    const tempHigh = Math.round(data.daily.temperature_2m_max[i]);
-    const tempLow = Math.round(data.daily.temperature_2m_min[i]);
-    const feelsLike = Math.round(data.daily.apparent_temperature_max[i]);
-    const dailyCode: number = data.daily.weathercode[i];
+    // Average Mosman + CBD daily values
+    const tempHigh  = avgTwo(Math.round(mosman.daily.temperature_2m_max[i]), Math.round(cbd.daily.temperature_2m_max[i]));
+    const feelsLike = avgTwo(Math.round(mosman.daily.apparent_temperature_max[i]), Math.round(cbd.daily.apparent_temperature_max[i]));
+    const dailyCode: number = mosman.daily.weathercode[i]; // use Mosman as primary
 
-    // Hourly arrays: index [i*24 + hour] for each hour of day i
     const base = i * 24;
-
-    // Morning: 7am–9am → indices base+7, base+8
     const morningHours = [7, 8];
-    const morningTemp = avg(morningHours.map((h) => data.hourly.temperature_2m[base + h]));
-    const morningRainChance = Math.max(
-      ...morningHours.map((h) => data.hourly.precipitation_probability[base + h] ?? 0)
-    );
-
-    // Evening: 5pm–8pm → indices base+17..base+20
     const eveningHours = [17, 18, 19, 20];
-    const eveningTemp = avg(eveningHours.map((h) => data.hourly.temperature_2m[base + h]));
-    const eveningRainChance = Math.max(
-      ...eveningHours.map((h) => data.hourly.precipitation_probability[base + h] ?? 0)
+
+    // Average hourly temps across both locations
+    const morningTemp = avgTwo(
+      avg(morningHours.map((h) => mosman.hourly.temperature_2m[base + h])),
+      avg(morningHours.map((h) => cbd.hourly.temperature_2m[base + h]))
+    );
+    const eveningTemp = avgTwo(
+      avg(eveningHours.map((h) => mosman.hourly.temperature_2m[base + h])),
+      avg(eveningHours.map((h) => cbd.hourly.temperature_2m[base + h]))
     );
 
-    const condition = wmoToCondition(dailyCode);
+    // Rain chance: use the higher of the two locations (conservative)
+    const morningRainChance = Math.max(
+      ...morningHours.map((h) => Math.max(
+        mosman.hourly.precipitation_probability[base + h] ?? 0,
+        cbd.hourly.precipitation_probability[base + h] ?? 0
+      ))
+    );
+    const eveningRainChance = Math.max(
+      ...eveningHours.map((h) => Math.max(
+        mosman.hourly.precipitation_probability[base + h] ?? 0,
+        cbd.hourly.precipitation_probability[base + h] ?? 0
+      ))
+    );
 
     days.push({
       date: dateStr,
@@ -73,41 +90,37 @@ function parseForecast(data: any): DayForecast[] {
       dayShort: i === 0 ? "Today" : i === 1 ? "Tmrw" : DAY_SHORT[dow],
       temperature: tempHigh,
       feelsLike,
-      condition,
+      condition: wmoToCondition(dailyCode),
       morningTemp,
       eveningTemp,
       morningRainChance,
       eveningRainChance,
     });
-
-    void tempLow; // used implicitly via feelsLike
   }
 
   return days;
 }
 
 export async function fetchForecast(): Promise<DayForecast[]> {
-  // Return cached data if still fresh
-  if (_cache && Date.now() - _cache.at < CACHE_MS) {
-    return _cache.data;
-  }
+  if (_cache && Date.now() - _cache.at < CACHE_MS) return _cache.data;
 
   try {
-    const res = await fetch(OPEN_METEO_URL);
-    if (!res.ok) throw new Error(`Open-Meteo ${res.status}`);
-    const json = await res.json();
-    const data = parseForecast(json);
+    const [mosmanRes, cbdRes] = await Promise.all([
+      fetch(MOSMAN_URL),
+      fetch(CBD_URL),
+    ]);
+    if (!mosmanRes.ok || !cbdRes.ok) throw new Error("Open-Meteo fetch failed");
+    const [mosmanJson, cbdJson] = await Promise.all([mosmanRes.json(), cbdRes.json()]);
+    const data = parseForecast(mosmanJson, cbdJson);
     _cache = { data, at: Date.now() };
     return data;
   } catch (err) {
-    console.error("Weather fetch failed, using fallback:", err);
-    // Return stale cache if available, otherwise static fallback
+    console.error("Weather fetch failed:", err);
     if (_cache) return _cache.data;
     return FALLBACK;
   }
 }
 
-// Static fallback used only if Open-Meteo fails AND no cache exists
 const FALLBACK: DayForecast[] = (() => {
   const today = new Date();
   return [0, 1, 2, 3, 4].map((i) => {
@@ -129,13 +142,18 @@ const FALLBACK: DayForecast[] = (() => {
   });
 })();
 
-// Clothing is based on the coldest part of the day
+// Clothing based on the coldest part of the day
+// Below 14 → very cold (2 jumpers pookie)
+// 14–20 → cold (wear a jumper)
+// 20–25 → mild (light layer)
+// 25–30 → warm
+// 30+  → hot
 export function getClothingRec(morningTemp: number, eveningTemp: number): ClothingRec {
   const coldest = Math.min(morningTemp, eveningTemp);
-  if (coldest < 10) return "very-cold";
-  if (coldest < 16) return "cold";
-  if (coldest < 22) return "mild";
-  if (coldest < 28) return "warm";
+  if (coldest < 14) return "very-cold";
+  if (coldest < 20) return "cold";
+  if (coldest < 25) return "mild";
+  if (coldest < 30) return "warm";
   return "hot";
 }
 
@@ -144,11 +162,11 @@ export function getUmbrellaRec(morningRain: number, eveningRain: number): Umbrel
 }
 
 export const CLOTHING_LABEL: Record<ClothingRec, string> = {
-  "very-cold": "Very cold — wear warm clothes and bring a jumper",
-  cold: "Cold — bring a jumper",
-  mild: "Mild — light layer recommended",
-  warm: "Warm — lighter clothes should be fine",
-  hot: "Hot — wear very light/cool clothes",
+  "very-cold": "Very cold out — bring 2 jumpers pookie, can't be having you sick 🧥🧥",
+  cold:        "Chilly — wear a jumper 🧥",
+  mild:        "Mild — a light layer should do 👕",
+  warm:        "Warm day — lighter clothes are fine ☀️",
+  hot:         "Hot one — very light/cool clothes 🌞",
 };
 
 export const CONDITION_EMOJI: Record<string, string> = {

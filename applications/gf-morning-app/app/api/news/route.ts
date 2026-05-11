@@ -1,15 +1,20 @@
-export const revalidate = 86400;
+export const revalidate = 3600; // refresh hourly
 
-const RSS2JSON_URL =
-  "https://api.rss2json.com/v1/api.json?rss_url=https://reneweconomy.com.au/feed/&count=8";
+// Australian economy news sources
+// SMH Business is primary because Ross Gittins writes there
+const SMH_BUSINESS =
+  "https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fwww.smh.com.au%2Frss%2Fbusiness.xml&count=20";
+const ABC_BUSINESS =
+  "https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fwww.abc.net.au%2Fnews%2Ffeed%2F2942578%2Frss.xml&count=10";
 
 const FALLBACK = {
-  title: "Australia's Solar Boom Drives Record Renewable Investment",
-  link: "https://reneweconomy.com.au",
+  title: "RBA holds rates as inflation edges toward target",
+  link: "https://www.smh.com.au/business/economy",
   description:
-    "Australia continues to lead the Asia-Pacific region in solar investment, with new figures showing record capacity additions driven by both utility-scale projects and rooftop installations across Queensland and New South Wales.",
+    "The Reserve Bank of Australia has held the cash rate steady as headline inflation continues its gradual decline toward the 2–3 per cent target band, with the board signalling it remains data-dependent on the timing of any future cuts.",
   pubDate: new Date().toISOString(),
-  source: "RenewEconomy",
+  source: "SMH Business",
+  isRossGittins: false,
 };
 
 function stripHtml(html: string): string {
@@ -25,51 +30,72 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-function getDayOfYear(date = new Date()): number {
-  const start = new Date(date.getFullYear(), 0, 0);
-  const diff = date.getTime() - start.getTime();
-  return Math.floor(diff / 86400000);
+interface RssItem {
+  title?: string;
+  link?: string;
+  description?: string;
+  pubDate?: string;
+  author?: string;
+  creator?: string;
+}
+
+function isRossGittins(item: RssItem): boolean {
+  const haystack = [item.author ?? "", item.creator ?? "", item.title ?? ""]
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes("gittins");
+}
+
+function formatItem(item: RssItem, source: string, rossGittins: boolean) {
+  const rawDesc = item.description ?? "";
+  const clean = stripHtml(rawDesc);
+  const description =
+    clean.length > 220 ? clean.slice(0, 217).trimEnd() + "…" : clean;
+  return {
+    title: item.title ?? FALLBACK.title,
+    link: item.link ?? FALLBACK.link,
+    description: description || FALLBACK.description,
+    pubDate: item.pubDate ?? new Date().toISOString(),
+    source,
+    isRossGittins: rossGittins,
+  };
+}
+
+async function fetchFeed(url: string): Promise<RssItem[]> {
+  const res = await fetch(url, { next: { revalidate: 3600 } });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data?.items ?? []) as RssItem[];
 }
 
 export async function GET() {
   try {
-    const res = await fetch(RSS2JSON_URL, {
-      next: { revalidate: 86400 },
-    });
+    // Fetch SMH first (contains Ross Gittins), ABC as backup
+    const [smhItems, abcItems] = await Promise.allSettled([
+      fetchFeed(SMH_BUSINESS),
+      fetchFeed(ABC_BUSINESS),
+    ]);
 
-    if (!res.ok) {
-      return Response.json(FALLBACK);
+    const smh = smhItems.status === "fulfilled" ? smhItems.value : [];
+    const abc = abcItems.status === "fulfilled" ? abcItems.value : [];
+
+    // Priority 1: Latest Ross Gittins article in SMH
+    const gittins = smh.find(isRossGittins);
+    if (gittins) {
+      return Response.json(formatItem(gittins, "Ross Gittins · SMH", true));
     }
 
-    const data = await res.json();
-    const items: Array<{
-      title?: string;
-      link?: string;
-      description?: string;
-      pubDate?: string;
-    }> = data?.items ?? [];
-
-    if (!items.length) {
-      return Response.json(FALLBACK);
+    // Priority 2: Most recent SMH Business article
+    if (smh.length > 0) {
+      return Response.json(formatItem(smh[0], "SMH Business", false));
     }
 
-    // Pick article based on day-of-year so it rotates daily
-    const dayOfYear = getDayOfYear();
-    const index = dayOfYear % items.length;
-    const article = items[index];
+    // Priority 3: Most recent ABC Business article
+    if (abc.length > 0) {
+      return Response.json(formatItem(abc[0], "ABC Business", false));
+    }
 
-    const rawDesc = article.description ?? "";
-    const cleanDesc = stripHtml(rawDesc);
-    const truncated =
-      cleanDesc.length > 220 ? cleanDesc.slice(0, 217).trimEnd() + "…" : cleanDesc;
-
-    return Response.json({
-      title: article.title ?? FALLBACK.title,
-      link: article.link ?? FALLBACK.link,
-      description: truncated || FALLBACK.description,
-      pubDate: article.pubDate ?? new Date().toISOString(),
-      source: "RenewEconomy",
-    });
+    return Response.json(FALLBACK);
   } catch {
     return Response.json(FALLBACK);
   }
