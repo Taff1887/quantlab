@@ -59,31 +59,36 @@ export default function SnoozeTracker() {
 
   async function fetchLogs() {
     setLoading(true);
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 13);
-    const cutoffStr = cutoff.toISOString().split("T")[0];
+    try {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 13);
+      const cutoffStr = cutoff.toISOString().split("T")[0];
 
-    const { data, error } = await supabase
-      .from("snooze_logs")
-      .select("*")
-      .gte("date", cutoffStr)
-      .order("date", { ascending: false });
+      const { data, error } = await supabase
+        .from("snooze_logs")
+        .select("*")
+        .gte("date", cutoffStr)
+        .order("date", { ascending: false });
 
-    // Table doesn't exist yet — show setup message
-    if (error && (error.code === "42P01" || error.message?.includes("does not exist"))) {
+      // Table doesn't exist yet — hide the tracker silently
+      if (error) {
+        setTableReady(false);
+        setLoading(false);
+        return;
+      }
+
+      const mapped = ((data ?? []) as Record<string, unknown>[]).map(mapRow);
+      setLogs(mapped);
+
+      const todayEntry = mapped.find((l) => l.date === today);
+      if (todayEntry) setSelectedCount(todayEntry.count);
+      else setSelectedCount(null);
+    } catch {
+      // Any unexpected error — hide the tracker rather than crash
       setTableReady(false);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const mapped = ((data ?? []) as Record<string, unknown>[]).map(mapRow);
-    setLogs(mapped);
-
-    const todayEntry = mapped.find((l) => l.date === today);
-    if (todayEntry) setSelectedCount(todayEntry.count);
-    else setSelectedCount(null);
-
-    setLoading(false);
   }
 
   useEffect(() => {
@@ -94,31 +99,22 @@ export default function SnoozeTracker() {
   async function handleSave(count: number) {
     setSelectedCount(count);
     setSaving(true);
-    await supabase.from("snooze_logs").upsert(
-      { id: today, date: today, count, created_at: new Date().toISOString() },
-      { onConflict: "date" }
-    );
-    await fetchLogs();
-    setSaving(false);
+    try {
+      await supabase.from("snooze_logs").upsert(
+        { id: today, date: today, count, created_at: new Date().toISOString() },
+        { onConflict: "date" }
+      );
+      await fetchLogs();
+    } catch {
+      // fail silently
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (loading) return <div className="card animate-pulse h-32" />;
 
-  if (!tableReady) return (
-    <div className="card border border-amber-100 bg-amber-50">
-      <h2 className="section-title mb-2">⏰ Snooze Tracker</h2>
-      <p className="text-xs text-amber-700 leading-relaxed">
-        Run this SQL in Supabase to enable snooze tracking:
-      </p>
-      <pre className="text-[10px] bg-white border border-amber-200 rounded-xl p-3 mt-2 overflow-x-auto text-slate-600 leading-relaxed">{`CREATE TABLE snooze_logs (
-  id TEXT PRIMARY KEY,
-  date TEXT NOT NULL UNIQUE,
-  count INTEGER NOT NULL,
-  created_at TEXT NOT NULL
-);
-ALTER TABLE snooze_logs DISABLE ROW LEVEL SECURITY;`}</pre>
-    </div>
-  );
+  if (!tableReady) return null;
 
   const todayEntry = logs.find((l) => l.date === today);
   const historyLogs = logs.filter((l) => l.date !== today);
