@@ -10,7 +10,6 @@ const DEFAULT_CHORES = [
   { id: "towels", name: "🏊 Towels", interval_days: 7 },
 ];
 
-// Map DB row → Chore
 function rowToChore(row: Record<string, unknown>): Chore {
   return {
     id: row.id as string,
@@ -20,23 +19,36 @@ function rowToChore(row: Record<string, unknown>): Chore {
   };
 }
 
+/** Find the first Sunday that is at least intervalDays after completedDate */
+function nextSundayAfterInterval(completedDate: Date, intervalDays: number): Date {
+  const minDate = new Date(completedDate.getTime() + intervalDays * 86_400_000);
+  const dow = minDate.getDay(); // 0 = Sunday
+  const daysUntilSunday = dow === 0 ? 0 : 7 - dow;
+  return new Date(minDate.getTime() + daysUntilSunday * 86_400_000);
+}
+
 function choreStatus(chore: Chore): {
   status: ChoreStatus;
   daysLeft: number;
   nextDue: Date | null;
 } {
   if (!chore.lastCompleted) {
-    return { status: "overdue", daysLeft: 0, nextDue: null };
+    return { status: "overdue", daysLeft: -99, nextDue: null };
   }
-  const nextDue = new Date(
-    new Date(chore.lastCompleted).getTime() + chore.intervalDays * 86_400_000
-  );
-  const daysLeft = Math.ceil((nextDue.getTime() - Date.now()) / 86_400_000);
+  const completed = new Date(chore.lastCompleted);
+  const nextDue = nextSundayAfterInterval(completed, chore.intervalDays);
+
+  // Compare dates at day granularity using local midnight
+  const now = new Date();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const nextDueMidnight = new Date(nextDue.getFullYear(), nextDue.getMonth(), nextDue.getDate());
+  const msLeft = nextDueMidnight.getTime() - todayMidnight.getTime();
+  const daysLeft = Math.round(msLeft / 86_400_000);
 
   let status: ChoreStatus;
   if (daysLeft < 0) status = "overdue";
   else if (daysLeft === 0) status = "due-today";
-  else if (daysLeft <= 2) status = "due-soon";
+  else if (daysLeft <= 3) status = "due-soon";
   else status = "ok";
 
   return { status, daysLeft, nextDue };
@@ -52,7 +64,7 @@ const STATUS_CARD: Record<ChoreStatus, string> = {
 const STATUS_TEXT: Record<ChoreStatus, string> = {
   ok: "text-emerald-600",
   "due-soon": "text-amber-600",
-  "due-today": "text-amber-700",
+  "due-today": "text-orange-600",
   overdue: "text-red-600",
 };
 
@@ -60,8 +72,12 @@ const STATUS_BADGE: Record<ChoreStatus, string> = {
   ok: "On track ✓",
   "due-soon": "Due soon",
   "due-today": "Due today!",
-  overdue: "Overdue",
+  overdue: "Overdue ⚠️",
 };
+
+function todayStr() {
+  return new Date().toISOString().split("T")[0];
+}
 
 export default function ChoreCountdown() {
   const [chores, setChores] = useState<Chore[]>([]);
@@ -72,17 +88,21 @@ export default function ChoreCountdown() {
   const [newName, setNewName] = useState("");
   const [newInterval, setNewInterval] = useState(7);
 
-  // Edit form (inline per-chore)
+  // Edit form
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editInterval, setEditInterval] = useState(7);
+  const [editLastCompleted, setEditLastCompleted] = useState("");
+
+  // "Done on date" inline picker
+  const [doneOnId, setDoneOnId] = useState<string | null>(null);
+  const [doneOnDate, setDoneOnDate] = useState(todayStr());
 
   async function fetchChores() {
     const { data } = await supabase.from("chores").select("*");
     const rows = (data ?? []) as Record<string, unknown>[];
 
     if (rows.length === 0) {
-      // Insert defaults
       await supabase.from("chores").insert(
         DEFAULT_CHORES.map((c) => ({ ...c, last_completed: null }))
       );
@@ -98,12 +118,25 @@ export default function ChoreCountdown() {
     fetchChores();
   }, []);
 
+  /** Mark done right now */
   async function markDone(id: string) {
-    const now = new Date().toISOString();
     await supabase
       .from("chores")
-      .update({ last_completed: now })
+      .update({ last_completed: new Date().toISOString() })
       .eq("id", id);
+    fetchChores();
+  }
+
+  /** Mark done on a specific date (backdating) */
+  async function markDoneOn(id: string, dateStr: string) {
+    // Store as ISO string at noon local time so timezone doesn't flip the day
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const dt = new Date(y, m - 1, d, 12, 0, 0);
+    await supabase
+      .from("chores")
+      .update({ last_completed: dt.toISOString() })
+      .eq("id", id);
+    setDoneOnId(null);
     fetchChores();
   }
 
@@ -131,13 +164,32 @@ export default function ChoreCountdown() {
     setEditId(chore.id);
     setEditName(chore.name);
     setEditInterval(chore.intervalDays);
+    // Convert stored ISO to YYYY-MM-DD for date input
+    if (chore.lastCompleted) {
+      const d = new Date(chore.lastCompleted);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      setEditLastCompleted(`${y}-${m}-${day}`);
+    } else {
+      setEditLastCompleted("");
+    }
   }
 
   async function saveEdit(id: string) {
     if (!editName.trim()) return;
+    let lastCompletedIso: string | null = null;
+    if (editLastCompleted) {
+      const [y, m, d] = editLastCompleted.split("-").map(Number);
+      lastCompletedIso = new Date(y, m - 1, d, 12, 0, 0).toISOString();
+    }
     await supabase
       .from("chores")
-      .update({ name: editName.trim(), interval_days: editInterval })
+      .update({
+        name: editName.trim(),
+        interval_days: editInterval,
+        ...(editLastCompleted ? { last_completed: lastCompletedIso } : {}),
+      })
       .eq("id", id);
     setEditId(null);
     fetchChores();
@@ -150,7 +202,7 @@ export default function ChoreCountdown() {
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="section-title">Chore Countdowns</h2>
+        <h2 className="section-title">🧹 Chore Countdowns</h2>
         <button
           onClick={() => setShowAdd((v) => !v)}
           className="text-xs font-semibold text-blue-600"
@@ -163,6 +215,7 @@ export default function ChoreCountdown() {
         {chores.map((chore) => {
           const { status, daysLeft, nextDue } = choreStatus(chore);
           const isEditing = editId === chore.id;
+          const isDoneOnOpen = doneOnId === chore.id;
 
           return (
             <div
@@ -170,7 +223,6 @@ export default function ChoreCountdown() {
               className={`rounded-2xl p-4 border ${STATUS_CARD[status]}`}
             >
               {isEditing ? (
-                /* Inline edit form */
                 <div className="space-y-2">
                   <input
                     className="input text-sm"
@@ -180,17 +232,25 @@ export default function ChoreCountdown() {
                     autoFocus
                   />
                   <div className="flex items-center gap-2">
-                    <label className="label whitespace-nowrap text-xs">Every</label>
+                    <label className="label whitespace-nowrap text-xs">Min interval</label>
                     <input
                       type="number"
                       min={1}
                       className="input w-20 text-center text-sm"
                       value={editInterval}
-                      onChange={(e) =>
-                        setEditInterval(Math.max(1, Number(e.target.value)))
-                      }
+                      onChange={(e) => setEditInterval(Math.max(1, Number(e.target.value)))}
                     />
                     <span className="text-xs text-slate-500">days</span>
+                  </div>
+                  <div>
+                    <label className="label text-xs">Last completed (backdate)</label>
+                    <input
+                      type="date"
+                      className="input text-sm"
+                      value={editLastCompleted}
+                      max={todayStr()}
+                      onChange={(e) => setEditLastCompleted(e.target.value)}
+                    />
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -212,20 +272,19 @@ export default function ChoreCountdown() {
                   <div className="flex-1 min-w-0">
                     {/* Name + badge */}
                     <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <p className="text-sm font-semibold text-slate-800">
-                        {chore.name}
-                      </p>
+                      <p className="text-sm font-semibold text-slate-800">{chore.name}</p>
                       <span className={`text-xs font-bold ${STATUS_TEXT[status]}`}>
                         {STATUS_BADGE[status]}
                       </span>
                     </div>
 
-                    {/* Detail rows */}
+                    {/* Detail */}
                     {chore.lastCompleted ? (
                       <>
                         <p className="text-xs text-slate-500">
                           Last done:{" "}
                           {new Date(chore.lastCompleted).toLocaleDateString("en-AU", {
+                            weekday: "short",
                             day: "numeric",
                             month: "short",
                           })}
@@ -233,26 +292,48 @@ export default function ChoreCountdown() {
                             <>
                               {" · "}Next:{" "}
                               {nextDue.toLocaleDateString("en-AU", {
+                                weekday: "short",
                                 day: "numeric",
                                 month: "short",
                               })}
                             </>
                           )}
                         </p>
-                        <p
-                          className={`text-xs font-semibold mt-1 ${STATUS_TEXT[status]}`}
-                        >
-                          {status === "overdue"
+                        <p className={`text-xs font-semibold mt-1 ${STATUS_TEXT[status]}`}>
+                          {daysLeft < 0
                             ? `${Math.abs(daysLeft)} day${Math.abs(daysLeft) !== 1 ? "s" : ""} overdue`
-                            : status === "due-today"
-                            ? "Do it today!"
-                            : `${daysLeft} day${daysLeft !== 1 ? "s" : ""} remaining`}
+                            : daysLeft === 0
+                            ? "Due today — get it done!"
+                            : `${daysLeft} day${daysLeft !== 1 ? "s" : ""} to go`}
                         </p>
                       </>
                     ) : (
-                      <p className="text-xs text-red-400">
-                        Never done — mark complete to start tracking
-                      </p>
+                      <p className="text-xs text-red-400">Never done — mark complete to start tracking</p>
+                    )}
+
+                    {/* Done-on-date picker */}
+                    {isDoneOnOpen && (
+                      <div className="mt-2 flex items-center gap-2 flex-wrap">
+                        <input
+                          type="date"
+                          className="input text-xs py-1 w-auto"
+                          value={doneOnDate}
+                          max={todayStr()}
+                          onChange={(e) => setDoneOnDate(e.target.value)}
+                        />
+                        <button
+                          onClick={() => markDoneOn(chore.id, doneOnDate)}
+                          className="btn-primary text-xs py-1 px-3"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          onClick={() => setDoneOnId(null)}
+                          className="text-xs text-slate-400 hover:text-slate-600"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     )}
                   </div>
 
@@ -263,6 +344,15 @@ export default function ChoreCountdown() {
                       className="px-3 py-1.5 bg-white rounded-xl text-xs font-semibold text-slate-700 shadow-sm border border-white hover:bg-slate-50 transition-colors"
                     >
                       Done ✓
+                    </button>
+                    <button
+                      onClick={() => {
+                        setDoneOnId(isDoneOnOpen ? null : chore.id);
+                        setDoneOnDate(todayStr());
+                      }}
+                      className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                    >
+                      Done on date…
                     </button>
                     <button
                       onClick={() => openEdit(chore)}
@@ -300,18 +390,17 @@ export default function ChoreCountdown() {
             />
           </div>
           <div className="flex items-center gap-3">
-            <label className="label whitespace-nowrap">Every</label>
+            <label className="label whitespace-nowrap">Min interval</label>
             <input
               type="number"
               value={newInterval}
               min={1}
-              onChange={(e) =>
-                setNewInterval(Math.max(1, Number(e.target.value)))
-              }
+              onChange={(e) => setNewInterval(Math.max(1, Number(e.target.value)))}
               className="input w-20 text-center"
             />
             <span className="text-xs text-slate-500">days</span>
           </div>
+          <p className="text-xs text-slate-400">Next due will always be a Sunday, at least this many days away.</p>
           <button onClick={handleAdd} className="btn-primary w-full">
             Add Chore
           </button>

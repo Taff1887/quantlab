@@ -193,6 +193,12 @@ export default function LastDate() {
               >
                 Edit
               </button>
+              <button
+                onClick={() => handleDelete(latest.id)}
+                className="text-xs text-slate-300 hover:text-red-400 transition-colors"
+              >
+                Delete
+              </button>
             </div>
           </div>
         </div>
@@ -237,13 +243,13 @@ export default function LastDate() {
                   <div className="flex items-center gap-2 ml-3 flex-shrink-0">
                     <button
                       onClick={() => openEditForm(d)}
-                      className="text-xs text-slate-300 hover:text-slate-600 transition-colors opacity-0 group-hover:opacity-100"
+                      className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
                     >
                       Edit
                     </button>
                     <button
                       onClick={() => handleDelete(d.id)}
-                      className="text-slate-200 hover:text-red-400 transition-colors text-sm opacity-0 group-hover:opacity-100"
+                      className="text-slate-300 hover:text-red-400 transition-colors text-sm"
                     >
                       ✕
                     </button>

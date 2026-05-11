@@ -88,7 +88,43 @@ function dayOfYear() {
   return Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-const STORAGE_KEY = "shortcut_quiz_" + new Date().toISOString().split("T")[0];
+const TODAY = new Date().toISOString().split("T")[0];
+const STORAGE_KEY = "shortcut_quiz_" + TODAY;
+const TALLY_KEY = "shortcut_quiz_tally";
+
+interface DayResult {
+  date: string;
+  outcome: "correct" | "wrong" | "skipped";
+}
+
+function loadTally(): DayResult[] {
+  try {
+    const raw = localStorage.getItem(TALLY_KEY);
+    if (raw) return JSON.parse(raw) as DayResult[];
+  } catch { /* ignore */ }
+  return [];
+}
+
+function saveTally(results: DayResult[]) {
+  try {
+    localStorage.setItem(TALLY_KEY, JSON.stringify(results));
+  } catch { /* ignore */ }
+}
+
+function computeStats(results: DayResult[]) {
+  const allTime = results.filter((r) => r.outcome !== "skipped");
+  const allTimeCorrect = allTime.filter((r) => r.outcome === "correct").length;
+  const allTimePct = allTime.length > 0 ? Math.round((allTimeCorrect / allTime.length) * 100) : null;
+
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const cutoff = thirtyDaysAgo.toISOString().split("T")[0];
+  const last30 = results.filter((r) => r.date >= cutoff && r.outcome !== "skipped");
+  const last30Correct = last30.filter((r) => r.outcome === "correct").length;
+  const last30Pct = last30.length > 0 ? Math.round((last30Correct / last30.length) * 100) : null;
+
+  return { allTimeCorrect, allTimeTotal: allTime.length, allTimePct, last30Correct, last30Total: last30.length, last30Pct };
+}
 
 export default function ShortcutQuiz() {
   const questionIdx = dayOfYear() % SHORTCUTS.length;
@@ -98,23 +134,44 @@ export default function ShortcutQuiz() {
   const [mainKey, setMainKey] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [wasCorrect, setWasCorrect] = useState(false);
+  const [wasSkipped, setWasSkipped] = useState(false);
+  const [tally, setTally] = useState<DayResult[]>([]);
+  const [showTally, setShowTally] = useState(false);
 
-  // Persist today's result in localStorage
   useEffect(() => {
+    const results = loadTally();
+    setTally(results);
+
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        const { correct, keys } = JSON.parse(stored) as { correct: boolean; keys: string[] };
-        setWasCorrect(correct);
+        const { outcome, keys } = JSON.parse(stored) as { outcome: "correct" | "wrong" | "skipped"; keys: string[] };
+        setWasCorrect(outcome === "correct");
+        setWasSkipped(outcome === "skipped");
         setSubmitted(true);
-        // Re-populate keyboard state
-        const mods = new Set(keys.filter((k) => MODIFIER_KEYS.includes(k)));
-        const main = keys.find((k) => !MODIFIER_KEYS.includes(k)) ?? null;
-        setActiveMods(mods);
-        setMainKey(main);
+        if (outcome !== "skipped") {
+          const mods = new Set(keys.filter((k) => MODIFIER_KEYS.includes(k)));
+          const main = keys.find((k) => !MODIFIER_KEYS.includes(k)) ?? null;
+          setActiveMods(mods);
+          setMainKey(main);
+        }
       }
     } catch { /* ignore */ }
   }, []);
+
+  function recordResult(outcome: "correct" | "wrong" | "skipped", keys: string[]) {
+    const results = loadTally();
+    const existingIdx = results.findIndex((r) => r.date === TODAY);
+    const entry: DayResult = { date: TODAY, outcome };
+    if (existingIdx >= 0) results[existingIdx] = entry;
+    else results.push(entry);
+    saveTally(results);
+    setTally(results);
+
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ outcome, keys }));
+    } catch { /* ignore */ }
+  }
 
   function toggleMod(mod: string) {
     if (submitted) return;
@@ -127,7 +184,6 @@ export default function ShortcutQuiz() {
 
   function pressKey(key: KbKey) {
     if (submitted) return;
-    // If Shift is active and key has a shifted version, use shifted value
     const value = activeMods.has("Shift") && key.shifted ? key.shifted : key.base;
     setMainKey(value);
   }
@@ -138,11 +194,18 @@ export default function ShortcutQuiz() {
     const correct = shortcut.answer.some(
       (combo) => normalise(combo) === normalise(selectedKeys)
     );
+    const outcome = correct ? "correct" : "wrong";
     setWasCorrect(correct);
+    setWasSkipped(false);
     setSubmitted(true);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ correct, keys: selectedKeys }));
-    } catch { /* ignore */ }
+    recordResult(outcome, selectedKeys);
+  }
+
+  function handleSkip() {
+    setWasSkipped(true);
+    setWasCorrect(false);
+    setSubmitted(true);
+    recordResult("skipped", []);
   }
 
   function reset() {
@@ -150,13 +213,12 @@ export default function ShortcutQuiz() {
     setMainKey(null);
     setSubmitted(false);
     setWasCorrect(false);
+    setWasSkipped(false);
     try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
   }
 
   const selectedKeys = [...activeMods, ...(mainKey ? [mainKey] : [])];
-  const selectedDisplay = selectedKeys.length
-    ? selectedKeys.join(" + ")
-    : "Select keys below";
+  const stats = computeStats(tally);
 
   return (
     <div className="card">
@@ -171,28 +233,34 @@ export default function ShortcutQuiz() {
       </div>
 
       {/* Selected combo display */}
-      <div className={`rounded-xl px-4 py-2.5 mb-3 text-center border transition-all ${
-        submitted
-          ? wasCorrect
-            ? "bg-emerald-50 border-emerald-300 text-emerald-800"
-            : "bg-red-50 border-red-300 text-red-800"
-          : "bg-white border-slate-200 text-slate-700"
-      }`}>
-        <p className="text-xs text-slate-400 mb-0.5">Your answer</p>
-        <p className="font-bold font-mono text-sm">
-          {selectedKeys.length ? selectedKeys.join(" + ") : <span className="text-slate-300">—</span>}
-        </p>
-      </div>
+      {!wasSkipped && (
+        <div className={`rounded-xl px-4 py-2.5 mb-3 text-center border transition-all ${
+          submitted
+            ? wasCorrect
+              ? "bg-emerald-50 border-emerald-300 text-emerald-800"
+              : "bg-red-50 border-red-300 text-red-800"
+            : "bg-white border-slate-200 text-slate-700"
+        }`}>
+          <p className="text-xs text-slate-400 mb-0.5">Your answer</p>
+          <p className="font-bold font-mono text-sm">
+            {selectedKeys.length ? selectedKeys.join(" + ") : <span className="text-slate-300">—</span>}
+          </p>
+        </div>
+      )}
 
       {/* Result */}
       {submitted && (
         <div className={`rounded-2xl px-4 py-3 mb-4 text-sm leading-relaxed ${
-          wasCorrect ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800"
+          wasSkipped
+            ? "bg-slate-50 text-slate-600"
+            : wasCorrect
+            ? "bg-emerald-50 text-emerald-800"
+            : "bg-red-50 text-red-800"
         }`}>
           <p className="font-bold mb-1">
-            {wasCorrect ? "✅ Correct!" : "❌ Not quite"}
+            {wasSkipped ? "🤷 Skipped" : wasCorrect ? "✅ Correct!" : "❌ Not quite"}
           </p>
-          {!wasCorrect && (
+          {(wasSkipped || !wasCorrect) && (
             <p className="font-mono font-bold mb-1">
               Answer: {shortcut.answer[0].join(" + ")}
               {shortcut.answer.length > 1 && ` (or ${shortcut.answer[1].join(" + ")})`}
@@ -205,74 +273,144 @@ export default function ShortcutQuiz() {
         </div>
       )}
 
-      {/* ── Keyboard ── */}
-      <div className="select-none">
-        {/* Modifier toggles */}
-        <div className="flex gap-2 mb-2">
-          {MODIFIER_KEYS.map((mod) => (
-            <button
-              key={mod}
-              onClick={() => toggleMod(mod)}
-              disabled={submitted}
-              className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all ${
-                activeMods.has(mod)
-                  ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                  : "bg-white text-slate-600 border-slate-300 hover:border-blue-400 hover:text-blue-600"
-              } disabled:opacity-40 disabled:cursor-default`}
-            >
-              {mod}
-            </button>
-          ))}
-        </div>
+      {/* Keyboard — hidden after skip */}
+      {!wasSkipped && (
+        <div className="select-none">
+          {/* Modifier toggles */}
+          <div className="flex gap-2 mb-2">
+            {MODIFIER_KEYS.map((mod) => (
+              <button
+                key={mod}
+                onClick={() => toggleMod(mod)}
+                disabled={submitted}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all ${
+                  activeMods.has(mod)
+                    ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                    : "bg-white text-slate-600 border-slate-300 hover:border-blue-400 hover:text-blue-600"
+                } disabled:opacity-40 disabled:cursor-default`}
+              >
+                {mod}
+              </button>
+            ))}
+          </div>
 
-        {/* Key rows */}
-        <div className="space-y-1 overflow-x-auto pb-1">
-          {KEY_ROWS.map((row, ri) => (
-            <div key={ri} className="flex gap-1 min-w-max">
-              {row.map((key) => {
-                const effectiveValue = activeMods.has("Shift") && key.shifted ? key.shifted : key.base;
-                const isSelected = mainKey === effectiveValue;
-                return (
-                  <button
-                    key={key.base}
-                    onClick={() => pressKey(key)}
-                    disabled={submitted}
-                    className={`h-8 px-1.5 rounded-lg text-xs font-mono font-semibold border transition-all flex-shrink-0 ${
-                      key.wide ? "min-w-[52px]" : "min-w-[28px]"
-                    } ${
-                      isSelected
-                        ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                        : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-700"
-                    } disabled:opacity-40 disabled:cursor-default`}
-                  >
-                    {key.label.length > 3 ? (
-                      <span className="text-[9px]">{key.label}</span>
-                    ) : key.shifted ? (
-                      <span className="flex flex-col items-center leading-none gap-px">
-                        <span className="text-[7px] text-slate-400">{key.shifted}</span>
-                        <span>{key.base}</span>
-                      </span>
-                    ) : (
-                      key.label
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+          {/* Key rows */}
+          <div className="space-y-1 overflow-x-auto pb-1">
+            {KEY_ROWS.map((row, ri) => (
+              <div key={ri} className="flex gap-1 min-w-max">
+                {row.map((key) => {
+                  const effectiveValue = activeMods.has("Shift") && key.shifted ? key.shifted : key.base;
+                  const isSelected = mainKey === effectiveValue;
+                  return (
+                    <button
+                      key={key.base}
+                      onClick={() => pressKey(key)}
+                      disabled={submitted}
+                      className={`h-8 px-1.5 rounded-lg text-xs font-mono font-semibold border transition-all flex-shrink-0 ${
+                        key.wide ? "min-w-[52px]" : "min-w-[28px]"
+                      } ${
+                        isSelected
+                          ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                          : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-700"
+                      } disabled:opacity-40 disabled:cursor-default`}
+                    >
+                      {key.label.length > 3 ? (
+                        <span className="text-[9px]">{key.label}</span>
+                      ) : key.shifted ? (
+                        <span className="flex flex-col items-center leading-none gap-px">
+                          <span className="text-[7px] text-slate-400">{key.shifted}</span>
+                          <span>{key.base}</span>
+                        </span>
+                      ) : (
+                        key.label
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
-
-      {/* Submit */}
-      {!submitted && (
-        <button
-          onClick={handleSubmit}
-          disabled={selectedKeys.length === 0}
-          className="btn-primary w-full mt-3 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          Check answer
-        </button>
       )}
+
+      {/* Submit + I don't know */}
+      {!submitted && (
+        <div className="flex gap-2 mt-3">
+          <button
+            onClick={handleSubmit}
+            disabled={selectedKeys.length === 0}
+            className="btn-primary flex-1 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Check answer
+          </button>
+          <button
+            onClick={handleSkip}
+            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-500 border border-slate-200 hover:bg-slate-50 transition-colors"
+          >
+            I don&apos;t know
+          </button>
+        </div>
+      )}
+
+      {/* Rolling tally */}
+      <div className="mt-4 pt-3 border-t border-slate-100">
+        <button
+          onClick={() => setShowTally((v) => !v)}
+          className="text-xs font-semibold text-blue-600"
+        >
+          {showTally ? "▲ Hide stats" : "▼ Success rate"}
+        </button>
+
+        {showTally && (
+          <div className="mt-2 space-y-1">
+            {stats.allTimePct !== null ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1">
+                    <p className="text-xs text-slate-500 mb-0.5">All time</p>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-blue-500 rounded-full transition-all"
+                        style={{ width: `${stats.allTimePct}%` }}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-sm font-bold text-slate-700 w-10 text-right">
+                    {stats.allTimePct}%
+                  </p>
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  {stats.allTimeCorrect} correct of {stats.allTimeTotal} attempted (skips excluded)
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-slate-400">No attempts yet</p>
+            )}
+
+            {stats.last30Pct !== null && stats.last30Total > 0 && (
+              <>
+                <div className="flex items-center gap-3 mt-2">
+                  <div className="flex-1">
+                    <p className="text-xs text-slate-500 mb-0.5">Last 30 days</p>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-violet-500 rounded-full transition-all"
+                        style={{ width: `${stats.last30Pct}%` }}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-sm font-bold text-slate-700 w-10 text-right">
+                    {stats.last30Pct}%
+                  </p>
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  {stats.last30Correct} correct of {stats.last30Total} attempted
+                </p>
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

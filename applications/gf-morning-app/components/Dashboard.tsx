@@ -1,6 +1,7 @@
 "use client";
 import Header from "./Header";
 import FunFactCard from "./FunFactCard";
+import SnoozeTracker from "./SnoozeTracker";
 import NewsCard from "./NewsCard";
 import QuizCard from "./QuizCard";
 import WeatherCard from "./WeatherCard";
@@ -21,6 +22,9 @@ export default function Dashboard() {
 
       {/* Top banner area */}
       <FunFactCard />
+      <div className="max-w-lg mx-auto px-4 pt-3">
+        <SnoozeTracker />
+      </div>
       <div className="max-w-lg mx-auto pb-2">
         <NewsCard />
       </div>
