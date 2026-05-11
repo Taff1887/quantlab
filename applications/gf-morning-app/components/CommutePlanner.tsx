@@ -5,6 +5,7 @@ import {
   generateAllTrips,
   filterTrips,
   tripsArrivingBy,
+  tripsArrivingNear,
   formatDist,
   type ScheduleTrip,
 } from "../lib/scheduleService";
@@ -113,6 +114,7 @@ export default function CommutePlanner() {
   const [ferryWharf, setFerryWharf] = useState<WharfName | "all">("all");
   const [busRoute, setBusRoute] = useState("all");
   const [results, setResults] = useState<ScheduleTrip[] | null>(null);
+  const [nearby, setNearby] = useState<ScheduleTrip[] | null>(null);
 
   const allTrips = useMemo(() => generateAllTrips(), []);
 
@@ -123,6 +125,7 @@ export default function CommutePlanner() {
       busRoute: mode === "bus" ? busRoute : undefined,
     });
     setResults(tripsArrivingBy(filtered, arrivalTime).slice(0, 5));
+    setNearby(tripsArrivingNear(filtered, arrivalTime, 30).slice(0, 3));
   }
 
   const dateLabel = (() => {
@@ -224,9 +227,33 @@ export default function CommutePlanner() {
               {results.map((t, i) => (
                 <PlannerTripCard key={t.id} trip={t} rank={i} />
               ))}
+
+              {nearby && nearby.length > 0 && (
+                <div className="mt-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="flex-1 border-t border-slate-100" />
+                    <span className="text-xs text-slate-400 font-medium flex-shrink-0">
+                      Just after — arriving up to 30 min later
+                    </span>
+                    <div className="flex-1 border-t border-slate-100" />
+                  </div>
+                  <div className="space-y-3">
+                    {nearby.map((t) => (
+                      <div key={t.id}>
+                        <p className="text-xs text-slate-400 mb-1 ml-1">
+                          Arrives ~{t.officeArrival}
+                        </p>
+                        <div className="opacity-50 grayscale">
+                          <PlannerTripCard trip={t} rank={99} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
-          <p className="text-xs text-slate-300 text-center">
+          <p className="text-xs text-slate-300 text-center mt-2">
             Mock timetable · TfNSW API coming soon
           </p>
         </div>

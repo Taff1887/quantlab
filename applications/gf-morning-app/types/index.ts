@@ -63,15 +63,32 @@ export type WorkoutType =
   | "Upper Body"
   | "Run"
   | "Stairmaster"
-  | "Walk"
-  | "Class"
   | "Other";
+
+export interface ExerciseSet {
+  weight?: number; // kg, optional (e.g. pull ups have no weight)
+  reps: number;
+  sets: number;
+}
+
+export interface GymDetails {
+  // Legs
+  squats?: ExerciseSet;
+  rdls?: ExerciseSet;
+  hipThrusts?: ExerciseSet;
+  // Upper Body
+  pullUps?: ExerciseSet;
+  // Stairmaster
+  flights?: number;
+  minutes?: number;
+}
 
 export interface GymSession {
   id: string;
   date: string; // YYYY-MM-DD
   type: WorkoutType;
   notes: string;
+  details?: GymDetails;
 }
 
 // =============================================================================
