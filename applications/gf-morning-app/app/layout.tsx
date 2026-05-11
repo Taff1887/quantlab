@@ -12,6 +12,12 @@ export const metadata: Metadata = {
   title: "Morning Command Centre",
   description: "Your personal morning dashboard — weather, commute, gym, and life admin.",
   manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Morning CC",
+  },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {
