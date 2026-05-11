@@ -1,41 +1,41 @@
 "use client";
 
 const FACTS = [
-  "The word 'salary' comes from Latin 'salarium' — Roman soldiers were sometimes paid in salt. 🧂",
-  "Goldman Sachs was founded in 1869 in a basement in Manhattan. It took 130 years to IPO. 🏛️",
-  "Warren Buffett filed his first tax return at age 13, deducting his bicycle as a business expense. 🚲",
-  "A single 'fat finger' trade in 2010 contributed to the Flash Crash, wiping $1 trillion from markets in minutes. 🖐️",
-  "The ASX 200 has been called 'the world's biggest mining company and four banks' — because it basically is. ⛏️",
-  "The world's first stock exchange opened in Amsterdam in 1602. The company listed: the Dutch East India Company. 🌍",
-  "JP Morgan personally saved the US from collapse in 1907 by locking bankers in a room until they agreed to a rescue plan. 🔐",
-  "The S&P 500 has never had a negative 20-year return. Ever. Buy and hold is boring but it works. 📈",
-  "Australia went 28 years without a recession (1991–2020) — the longest run in modern history for a developed economy. 🦘",
-  "George Soros made $1 billion in a single day 'breaking' the Bank of England in 1992. The pound duly collapsed. 💷",
-  "The Federal Reserve was created in 1913 to prevent bank panics — then presided over the Great Depression 16 years later. 🎢",
-  "Lehman Brothers survived the US Civil War, two World Wars, and the Great Depression before collapsing from US mortgage paper in 2008. 🏦",
-  "The Dutch tulip bulb market collapsed in 1637. A single rare bulb sold for 10× a craftsman's annual salary before the crash. 🌷",
-  "CFA Level 1 has a pass rate of around 37%. It's harder to pass than many law bar exams. 📚",
-  "BlackRock manages $10 trillion+ in assets — more than the GDP of every country except the US and China. 🌐",
-  "The average IB analyst works 80–100 hour weeks. That's the equivalent of holding 2.5 full-time jobs. ⏰",
-  "The Excel VLOOKUP function was introduced in 1985. Many investment banks still build critical models on it 40 years later. 📊",
-  "Australia's sovereign wealth fund (the Future Fund) was seeded with $60.5B of Telstra privatisation proceeds in 2006. 🦘",
-  "The word 'bankruptcy' comes from Italian 'banca rotta' — broken bench. When a money changer couldn't pay, his trading bench was literally smashed. 🪑",
-  "A financial advisor who simply matched the S&P 500 index would outperform ~85% of active fund managers over 15 years. 🎯",
-  "Australia has one of the highest household debt-to-income ratios in the world. We really, really love property. 🏡",
-  "The Bloomberg Terminal costs ~$24,000/year per seat. There are 325,000+ terminals globally. Bloomberg is worth ~$80B. 💻",
-  "The word 'money' comes from the Roman goddess Juno Moneta, in whose temple coins were minted. 🏛️",
-  "Despite producing 40% of the world's lithium, Australia has never had a major battery manufacturer. Yet. 🔋",
-  "KKR's first mega LBO was RJR Nabisco in 1989 for $31.4B — the 'Barbarians at the Gate' deal still taught in business schools. 📖",
-  "Vanguard, which pioneered low-cost index investing, is technically owned by its own funds — meaning it's owned by its investors. 🔄",
-  "Compound interest: $10,000 at 7% p.a. becomes $76,000 in 30 years with zero extra contributions. 🧮",
-  "The average age when a Goldman Sachs banker makes Managing Director is ~38. The average MD tenure: 3–5 years before they leave for a PE fund. 👔",
-  "Australia's superannuation system holds $3.5 trillion — the 4th largest pension pool in the world, in a country of 26 million people. 💰",
-  "The Chicago Mercantile Exchange started in 1898 trading butter and egg futures. Finance has humble roots. 🥚",
-  "Negative interest rates actually happened — the ECB, Bank of Japan, and Swiss National Bank all went below zero. Depositors literally paid banks to hold cash. 📉",
-  "The NYSE was founded in 1792 under a buttonwood tree on Wall Street. The first securities traded were US government bonds and bank stocks. 🌳",
-  "Short selling was blamed for the 1929 crash. It was banned temporarily after the 2008 crisis. Critics disagree on whether either ban helped. 📰",
-  "Australia's Big Four banks (CBA, ANZ, NAB, Westpac) are consistently among the world's most profitable relative to their asset size. 🏦",
-  "The term 'bull market' and 'bear market' likely come from the way each animal attacks — bulls thrust upward 🐂, bears swipe downward 🐻.",
+  "If you shuffle a deck of cards properly, the exact order has almost certainly never existed before in history — and never will again. The number of combinations (52!) is larger than the number of atoms in the observable universe. 🃏",
+  "A single strand of human DNA, if uncoiled, would stretch about 2 metres. Your body has ~37 trillion cells — laid end-to-end, your DNA would reach the sun and back ~70 times. 🧬",
+  "There are more possible iterations of a game of chess than there are atoms in the observable universe — and most games are over in under 40 moves. ♟️",
+  "The Great Wall of China is NOT visible from space with the naked eye. This is a myth — astronauts have confirmed it. You'd need eyesight 17,000× better than 20/20 vision. 🌍",
+  "Cleopatra lived closer in time to the Moon landing (1969) than to the construction of the Great Pyramid (~2560 BC). History is not distributed how we imagine. 🏺",
+  "Every atom in your body was forged inside a star that exploded before our solar system existed. You are literally made of stardust — and so is everything else. ⭐",
+  "If you removed all the empty space from atoms in all humans on Earth, the remaining matter would fit inside a sugar cube. Everything you see is mostly emptiness. 🎲",
+  "Nintendo was founded in 1889 — the same year the Eiffel Tower was built. They were making playing cards before electric light was common. 🃏",
+  "The Woolly Mammoth was still alive when the Great Pyramids were being built. Extinction timelines are not what you think. 🦣",
+  "There are more trees on Earth than stars in the Milky Way. Estimates put Earth's tree count at ~3 trillion; the Milky Way has ~300 billion stars. 🌳",
+  "Your brain generates about 20 watts of electrical power — enough to dimly light an LED bulb. Thinking hard doesn't use noticeably more energy. 🧠",
+  "A day on Venus is longer than a year on Venus. It rotates so slowly it completes one full orbit of the Sun before completing one full rotation on its own axis. 🌑",
+  "Honey never spoils. Archaeologists have found 3,000-year-old honey in Egyptian tombs — and it was still edible. 🍯",
+  "Oxford University is older than the Aztec Empire. Teaching began there around 1096 AD. The Aztec empire started in 1428 AD. 🎓",
+  "If you folded a piece of paper 42 times, the stack would reach the Moon. Each fold doubles the thickness — exponential growth is brutally non-intuitive. 📄",
+  "An octopus has three hearts, blue blood, and nine brains (one central + one per arm). The arms can taste and touch simultaneously. 🐙",
+  "The fax machine was invented in 1843 — before the telephone. Alexander Bain patented it over 30 years before Bell's phone call. 📠",
+  "Alaska is simultaneously the westernmost, northernmost, AND easternmost state in the US. Part of it crosses the 180° meridian into the Eastern Hemisphere. 🗺️",
+  "A bolt of lightning is about 5 times hotter than the surface of the Sun. The surface of the Sun is ~5,500°C; lightning reaches ~27,700°C. ⚡",
+  "Humans share ~60% of their DNA with a banana. We share ~98.7% with chimpanzees. DNA tells you a lot — and nothing you expected. 🍌",
+  "The mantis shrimp can punch with the acceleration of a bullet — fast enough to boil the water around it. Their clubs can withstand years of this without breaking. 🦐",
+  "Saturn's rings are only about 10 metres thick on average, but span 280,000 km wide. If scaled to the size of a football field, they'd be thinner than a sheet of paper. 🪐",
+  "The total weight of all ants on Earth was estimated (until recently) to equal or exceed the total weight of all humans. They are the most successful animal group by biomass. 🐜",
+  "Sharks are older than trees. Sharks evolved ~450 million years ago; trees appeared ~350 million years ago. Sharks predate wood. 🦈",
+  "There are more possible sudoku grids than there are grains of sand on Earth. There are 6,670,903,752,021,072,936,960 valid sudoku puzzles. 🔢",
+  "The Eiffel Tower is 15cm taller in summer than winter due to thermal expansion. Metal expands when it heats up — and the tower has lots of it. 🗼",
+  "You can't hum while holding your nose closed. Try it. The air needed to create a sound has nowhere to go. 🤐",
+  "The word 'set' has the most meanings of any word in the English language — the Oxford English Dictionary lists over 430 distinct definitions. 📚",
+  "A teaspoon of neutron star material would weigh approximately 900 times the weight of the Great Pyramid of Giza (~6 billion tonnes). 🌑",
+  "The Voyager 1 spacecraft, launched in 1977, is now over 23 billion km from Earth — still operational, and it can communicate with us using 23 watts of power. 🚀",
+  "There are more ways to arrange 20 books on a shelf than there have been seconds since the Big Bang. Factorial growth is incomprehensible. 📖",
+  "Wombat poo is cube-shaped. No other animal produces cube-shaped faeces. Scientists spent years figuring out how — it's produced that way inside the intestine. 🟫",
+  "The loudest sound in recorded history was the 1883 eruption of Krakatoa — heard 5,000 km away in Rodrigues Island. Sound at that range is essentially impossible. 🌋",
+  "Pluto hasn't completed a single orbit of the Sun since it was discovered in 1930. Its year is 248 Earth years long. ☄️",
+  "There are more atoms in a grain of sand than there are grains of sand on all of Earth's beaches. Atoms are inconceivably small. 🏖️",
 ];
 
 function dayOfYear() {
@@ -50,9 +50,9 @@ export default function FunFactCard() {
   return (
     <div className="max-w-lg mx-auto px-4 pt-4">
       <div className="bg-gradient-to-r from-violet-50 to-fuchsia-50 border border-violet-100 rounded-2xl px-4 py-3 flex gap-3 items-start">
-        <span className="text-lg flex-shrink-0 mt-0.5">💡</span>
+        <span className="text-lg flex-shrink-0 mt-0.5">🤯</span>
         <div>
-          <p className="text-xs font-bold text-violet-600 uppercase tracking-wide mb-1">Daily Fact</p>
+          <p className="text-xs font-bold text-violet-600 uppercase tracking-wide mb-1">Daily Mind-Blower</p>
           <p className="text-sm text-slate-700 leading-relaxed">{fact}</p>
         </div>
       </div>

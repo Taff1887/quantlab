@@ -116,7 +116,7 @@ export default function LifeAdmin() {
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="section-title">Life Admin</h2>
+        <h2 className="section-title">✅ Life Admin</h2>
         {active.length > 0 && (
           <span className="text-xs font-bold bg-blue-50 text-blue-600 px-2.5 py-1 rounded-full">
             {active.length} active

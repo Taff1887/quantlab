@@ -7,148 +7,178 @@ interface ExcelFn {
   description: string;
   example: string;
   tip: string;
+  level: "advanced" | "expert";
 }
 
+// Index 0 = week 20 of 2026 (20 % 20 = 0). Put the most advanced/obscure first.
 const FUNCTIONS: ExcelFn[] = [
   {
-    name: "XLOOKUP",
-    syntax: "=XLOOKUP(lookup_value, lookup_array, return_array, [not_found], [match_mode])",
-    description: "The modern replacement for VLOOKUP. Searches a range and returns a value from another range — left-to-right OR right-to-left.",
-    example: "=XLOOKUP(A2, CompanyNames, Revenue)\n→ returns Revenue for the company named in A2",
-    tip: "Unlike VLOOKUP, XLOOKUP can look left, handles #N/A gracefully with a fallback, and doesn't need a column index number. Learn this, forget VLOOKUP.",
+    name: "BYROW / BYCOL",
+    syntax: "=BYROW(array, LAMBDA(row, formula))\n=BYCOL(array, LAMBDA(col, formula))",
+    description: "Apply a LAMBDA to every row (or column) of an array, returning one result per row/column. The cleanest way to eliminate per-row helper columns from your models.",
+    example: "=BYROW(A2:D10, LAMBDA(r, MAX(r)))\n→ max of each of the 9 rows, returned as a single column\n\n=BYCOL(A2:D10, LAMBDA(c, AVERAGE(c)))\n→ average of each column, returned as a single row\n\n=BYROW(Revenue, LAMBDA(r, SUM(r)/COUNTA(r)))\n→ average revenue per non-blank period, for every company",
+    tip: "BYROW/BYCOL are the replacement for 'drag down 500 rows' patterns. Combine with FILTER inside the LAMBDA for conditional per-row aggregation. Only available in Excel 365.",
+    level: "expert",
   },
   {
-    name: "SUMIFS",
-    syntax: "=SUMIFS(sum_range, criteria_range1, criteria1, [criteria_range2, criteria2]...)",
-    description: "Sums values meeting multiple conditions. The IB analyst's bread and butter for slicing financial data.",
-    example: '=SUMIFS(Revenue, Region, "APAC", Year, 2024)\n→ total APAC revenue in 2024',
-    tip: 'The sum_range comes FIRST — unlike COUNTIFS, this trips people up. Use wildcards: "*Tech*" for partial text matches.',
+    name: "MAKEARRAY",
+    syntax: "=MAKEARRAY(rows, cols, LAMBDA(row, col, formula))",
+    description: "Generate a 2D array of any size, where each cell value is computed by a LAMBDA. Build dynamic output tables without typing a single value.",
+    example: "=MAKEARRAY(5, 4, LAMBDA(r,c, r*c))\n→ 5×4 multiplication table\n\n=MAKEARRAY(10, 12, LAMBDA(y, m,\n  IF(DATE(2024+y-1,m,1)>TODAY(),\"\",\n  SUMIFS(Revenue,Year,2024+y-1,Month,m))))\n→ 10-year × 12-month revenue grid, auto-updating",
+    tip: "MAKEARRAY is SEQUENCE on steroids — it can produce any 2D structure based on row/column coordinates. Use it to build dynamic output tables, sensitivity analyses, or calendarised schedules.",
+    level: "expert",
   },
   {
-    name: "INDEX / MATCH",
-    syntax: "=INDEX(return_range, MATCH(lookup_value, lookup_range, 0))",
-    description: "The power combo. INDEX returns a value by position; MATCH finds the position. Together, they outperform VLOOKUP in every way.",
-    example: '=INDEX(B:B, MATCH("Goldman Sachs", A:A, 0))\n→ finds Goldman\'s row and returns column B',
-    tip: "The '0' in MATCH = exact match. Use when your lookup column isn't the leftmost column — which is most of the time.",
+    name: "SCAN",
+    syntax: "=SCAN(initial_value, array, LAMBDA(acc, value, formula))",
+    description: "Like REDUCE but returns ALL intermediate accumulated values, not just the final result. Perfect for running totals, cumulative sums, and YTD calculations without helper columns.",
+    example: "=SCAN(0, Monthly_Revenue, LAMBDA(acc, val, acc+val))\n→ running cumulative revenue for the year\n\n=SCAN(100, Returns, LAMBDA(acc, r, acc*(1+r)))\n→ growth of $100 invested, updated each period — a NAV index in one formula",
+    tip: "SCAN is essentially REDUCE with memory. Pair it with BYROW/BYCOL for multi-dimensional running totals. SCAN(0, A:A, LAMBDA(a,v, a+v)) replaces every cumulative sum column in your model.",
+    level: "expert",
   },
   {
-    name: "IFERROR",
-    syntax: "=IFERROR(value, value_if_error)",
-    description: "Traps errors (#N/A, #DIV/0!, #REF! etc.) and replaces them with a fallback. Essential for clean financial models.",
-    example: '=IFERROR(VLOOKUP(A2, Table, 2, 0), "—")\n→ shows "—" instead of ugly #N/A',
-    tip: 'Use =IFERROR(formula, "") for blank, or =IFERROR(formula, 0) for numeric calculations. Wrapping every lookup in IFERROR is good practice.',
+    name: "REDUCE",
+    syntax: "=REDUCE(initial_value, array, LAMBDA(acc, value, formula))",
+    description: "Iterate over an array, accumulating a result. Returns only the final accumulated value. Think of it as a fold/aggregate operation over any range.",
+    example: "=REDUCE(1, A2:A10, LAMBDA(acc, val, acc*val))\n→ product of all values (like PRODUCT() but customisable)\n\n=REDUCE(\"\", Names, LAMBDA(acc, n,\n  IF(acc=\"\", n, acc&\", \"&n)))\n→ concatenates all names with \", \" separator — no helper column",
+    tip: "REDUCE is the power tool when SUMPRODUCT/SUMIFS can't express your logic. It's the right choice when each element needs to depend on the previous accumulated result.",
+    level: "expert",
   },
   {
-    name: "NPV",
-    syntax: "=NPV(rate, value1, [value2]...)",
-    description: "Net Present Value of future cash flows discounted at a given rate. Core DCF building block.",
-    example: "=NPV(0.10, C5:C10)\n→ PV of year 1–6 cash flows at 10% (excludes year 0)",
-    tip: "⚠️ Excel's NPV starts discounting from period 1. Add Year 0 investment OUTSIDE: =C4 + NPV(rate, C5:C10). Forgetting this is a classic error.",
+    name: "MAP",
+    syntax: "=MAP(array1, [array2,...], LAMBDA(value1, [value2,...], formula))",
+    description: "Apply a LAMBDA to each corresponding element across one or more arrays, returning an array of the same shape. Like a vectorised IF/calculation across multiple ranges simultaneously.",
+    example: "=MAP(Revenue, Costs, LAMBDA(r, c, (r-c)/r))\n→ margin for every cell pair — no helper column needed\n\n=MAP(Prices, Quantities, LAMBDA(p,q,\n  IF(q=0, \"—\", p*q)))\n→ element-wise multiplication with a zero-guard",
+    tip: "MAP replaces 'drag across multiple ranges' patterns. Pass up to 253 arrays — each element from each array is passed to the LAMBDA. This is your dynamic VLOOKUP-equivalent for computed columns.",
+    level: "expert",
   },
   {
-    name: "XIRR",
-    syntax: "=XIRR(values, dates, [guess])",
-    description: "IRR for irregular cash flow dates — more realistic than IRR for actual deals where cash flows don't fall neatly at year-end.",
-    example: "=XIRR(B4:B9, C4:C9)\n→ where B = cash flows and C = actual transaction dates",
-    tip: "Always use XIRR over IRR in real models. If it returns an error, seed the iteration: =XIRR(values, dates, 0.2) starts from 20%.",
-  },
-  {
-    name: "CHOOSE",
-    syntax: "=CHOOSE(index_num, value1, value2, value3...)",
-    description: "Returns one value from a list based on an index number. Classic for scenario toggles in financial models.",
-    example: "=CHOOSE(ScenarioCell, BaseRevenue, BullRevenue, BearRevenue)\n→ switches between Base/Bull/Bear based on a dropdown",
-    tip: "Combine with a data-validation dropdown (1/2/3). Far cleaner than nested IFs for 3+ scenarios. Widely used in LBO and DCF models.",
-  },
-  {
-    name: "FILTER",
-    syntax: "=FILTER(array, include, [if_empty])",
-    description: "Dynamically filters a range based on conditions — a game-changer for dashboards without pivot tables.",
-    example: '=FILTER(A2:C100, B2:B100="APAC")\n→ returns all rows where Region = APAC',
-    tip: 'Chain conditions with * (AND) or + (OR):\n=FILTER(data, (Region="APAC")*(Year=2024))',
-  },
-  {
-    name: "UNIQUE",
-    syntax: "=UNIQUE(array, [by_col], [exactly_once])",
-    description: "Returns deduplicated values from a range. Game-changer for dynamic dropdown lists.",
-    example: "=SORT(UNIQUE(A2:A100))\n→ clean sorted list of all unique company names",
-    tip: "Use as the source for a data-validation dropdown — it auto-updates as data grows. No more manually managing dropdown lists.",
+    name: "LAMBDA (Advanced patterns)",
+    syntax: "=LAMBDA(param1, ..., formula) — named in the Name Manager",
+    description: "Beyond the basics: recursive LAMBDA for factorial/Fibonacci, self-referencing named LAMBDAs, and composing LAMBDAs inside BYROW/MAP for complex pipelines.",
+    example: "Recursive factorial:\nName: FACT_R\n=LAMBDA(n, IF(n<=1, 1, n*FACT_R(n-1)))\nUsage: =FACT_R(10) → 3628800\n\nComposed pipeline:\n=BYROW(Data, LAMBDA(r, MY_MARGIN(r)))\nwhere MY_MARGIN is itself a LAMBDA — clean, reusable, readable",
+    tip: "Recursive LAMBDAs: name the LAMBDA in the Name Manager, then reference its own name inside the formula body. Excel handles the recursion up to a depth limit. This is as close to writing a real function as Excel gets.",
+    level: "expert",
   },
   {
     name: "LET",
-    syntax: "=LET(name1, value1, [name2, value2...], calculation)",
-    description: "Assigns names to intermediate values within a formula. Makes complex formulas readable and faster (each sub-expression computed once).",
-    example: '=LET(\n  rev, SUM(B:B),\n  costs, SUM(C:C),\n  (rev - costs) / rev\n)\n→ clean EBITDA margin formula',
-    tip: "If you reference the same sub-formula twice, wrap it in LET. Replaces the need for helper columns in complex single-cell formulas.",
+    syntax: "=LET(name1, value1, [name2, value2,...], calculation)",
+    description: "Assign named variables within a formula — each sub-expression is computed once. Makes complex formulas readable and eliminates redundant calculation.",
+    example: "=LET(\n  rev,  SUMIF(Region, \"APAC\", Revenue),\n  cost, SUMIF(Region, \"APAC\", Costs),\n  margin, (rev-cost)/rev,\n  IF(margin>0.3, \"✓ Target\", \"✗ Below\")\n)\n→ clean, fast, human-readable — no helper cells",
+    tip: "If your formula references the same sub-expression more than once, LET makes it calculate once and reuse everywhere. It also means you can name intermediate results meaningfully — future you will thank present you.",
+    level: "advanced",
   },
   {
-    name: "EOMONTH",
-    syntax: "=EOMONTH(start_date, months)",
-    description: "Returns the last day of a month offset by N months. Used in models for period-end dates and interest accruals.",
-    example: "=EOMONTH(TODAY(), 0) → last day of current month\n=EOMONTH(A1, 3) → last day, 3 months from A1",
-    tip: "=EOMONTH(date, -1)+1 gives you the FIRST day of the current month. Great for building dynamic quarterly/monthly model headers.",
+    name: "FILTER (advanced)",
+    syntax: "=FILTER(array, include, [if_empty])",
+    description: "Beyond basic filtering: chain FILTER inside SORT, UNIQUE, BYROW, or other dynamic functions. Use arithmetic on boolean arrays for complex multi-condition filters.",
+    example: "Complex AND + OR logic:\n=FILTER(Data,\n  ((Sector=\"Tech\")+(Sector=\"Finance\")) *\n  (Revenue>1e6) *\n  (Year=2024))\n→ Tech OR Finance, AND revenue >$1M, AND 2024 only\n\n=SORT(FILTER(Deals, Closed=TRUE), 3, -1)\n→ closed deals sorted by column 3 descending",
+    tip: "* = AND logic (all must be TRUE=1). + = OR logic (at least one TRUE=1). ISNUMBER(SEARCH()) inside FILTER gives you partial text match filtering — an Excel-native fuzzy search.",
+    level: "advanced",
   },
   {
-    name: "TEXT",
-    syntax: '=TEXT(value, "format_string")',
-    description: "Converts a number or date to formatted text. Essential for readable dashboard labels and concatenated strings.",
-    example: '=TEXT(1234567, "$#,##0.0M") → "$1.2M"\n=TEXT(TODAY(), "dddd d MMMM") → "Monday 11 May"',
-    tip: 'Common formats: "0.0%" for percentages, "#,##0" for thousands, "$#,##0.0M" for millions. Heads up: TEXT results are strings — keep the raw number for calculations.',
+    name: "XLOOKUP (advanced)",
+    syntax: "=XLOOKUP(lookup, lookup_array, return_array, [not_found], [match_mode], [search_mode])",
+    description: "Beyond basic usage: binary search for huge datasets, wildcard matching, approximate match with the nearest value, and reverse search to find the last match.",
+    example: "Reverse search (last occurrence):\n=XLOOKUP(\"APAC\", Region, Deal, , 0, -1)\n\nNearest match (no exact needed):\n=XLOOKUP(Target_Rate, Rate_Table, Premium_Table, , 1)\n→ finds closest rate ≥ target\n\nWildcard:\n=XLOOKUP(\"*Goldman*\", Company, Revenue, \"Not found\", 2)",
+    tip: "search_mode = -1 scans from the last row upward — finds the most recent entry (e.g., latest price for a security) without sorting. match_mode = 1 or -1 gives 'next largest/smallest' — perfect for rate tables and tiered pricing.",
+    level: "advanced",
   },
   {
-    name: "SUMPRODUCT",
-    syntax: "=SUMPRODUCT(array1, [array2]...)",
-    description: "Multiplies corresponding array elements and sums the result. Before SUMIFS existed, this was the go-to for multi-criteria aggregation.",
-    example: '=SUMPRODUCT((Region="APAC") * (Year=2024) * Revenue)\n→ APAC 2024 revenue without helper columns',
-    tip: "Still useful for weighted averages: =SUMPRODUCT(weights, values) / SUM(weights). More flexible than SUMIFS for complex criteria.",
-  },
-  {
-    name: "PMT",
-    syntax: "=PMT(rate, nper, pv, [fv], [type])",
-    description: "Calculates the periodic payment for a loan. Core for debt schedule modelling and LBO analysis.",
-    example: "=PMT(5%/12, 60, -500000)\n→ monthly repayment on a $500k loan at 5% p.a. over 5 years",
-    tip: "PMT returns a negative number (cash outflow). Negate it: =-PMT(rate, nper, pv). Always use consistent periods — if rate is annual, nper must be in years.",
-  },
-  {
-    name: "OFFSET",
-    syntax: "=OFFSET(reference, rows, cols, [height], [width])",
-    description: "Returns a reference offset from a starting cell. Powerful for dynamic ranges and rolling windows.",
-    example: "=OFFSET(A1, 2, 3) → cell D3\n=SUM(OFFSET(B1, 0, 0, 1, 12)) → sum the next 12 columns from B1",
-    tip: "⚠️ OFFSET is volatile — it recalculates every time anything in the workbook changes, which slows large models. INDEX can often replace it more efficiently.",
-  },
-  {
-    name: "SEQUENCE",
+    name: "SEQUENCE (advanced)",
     syntax: "=SEQUENCE(rows, [cols], [start], [step])",
-    description: "Generates a sequence of numbers. Perfect for dynamic year/period headers in financial models.",
-    example: "=SEQUENCE(1, 5, 2024, 1) → {2024, 2025, 2026, 2027, 2028}\n=DATE(SEQUENCE(1,5,2024), 12, 31) → 5 year-end dates",
-    tip: "Combine with DATE or EDATE for dynamic calendar headers. No more manually typing years across columns — change the start year in one cell.",
+    description: "Beyond lists: combine SEQUENCE with DATE, EDATE, WORKDAY, and MAKEARRAY to generate full dynamic calendar structures with a single formula.",
+    example: "Dynamic month-end dates for 5 years:\n=EOMONTH(DATE(2024,1,1), SEQUENCE(60)-1)\n→ 60 month-end dates starting Jan 2024\n\nAll Wednesdays in 2025:\n=FILTER(\n  DATE(2025,1,1)+SEQUENCE(365)-1,\n  WEEKDAY(DATE(2025,1,1)+SEQUENCE(365)-1,2)=3\n)\n→ every Wednesday, automatically",
+    tip: "SEQUENCE is the engine behind most dynamic array date structures. Pair it with WORKDAY to generate business-day-only sequences, or FILTER+WEEKDAY for specific days of the week.",
+    level: "advanced",
   },
   {
-    name: "LAMBDA",
-    syntax: "=LAMBDA(param1, ..., formula) — defined in Name Manager",
-    description: "Create your own reusable functions in Excel without VBA. Define once, use anywhere in the workbook.",
-    example: 'Name: EBITDA_MARGIN\n=LAMBDA(ebitda, revenue, ebitda/revenue)\n\nUsage: =EBITDA_MARGIN(B5, C5)',
-    tip: "Define in Formulas → Name Manager. Once saved, it works exactly like a built-in function. Perfect for standardising repeated complex formulas across a team's models.",
+    name: "SUMPRODUCT (expert uses)",
+    syntax: "=SUMPRODUCT(array1, [array2,...])",
+    description: "Beyond element multiplication: SUMPRODUCT as a weighted aggregator, conditional counter, rank calculator, and multi-dimensional pivot — all without helper columns.",
+    example: "Weighted average:\n=SUMPRODUCT(Weights, Returns)/SUM(Weights)\n\nCount unique values in a filtered range:\n=SUMPRODUCT((Region=\"APAC\")/COUNTIF(Company,Company))\n\nRank without ties (dense rank):\n=SUMPRODUCT((Score>Score_Cell)*1)+1",
+    tip: "SUMPRODUCT evaluates arrays without Ctrl+Shift+Enter. The key insight: dividing TRUE/FALSE arrays by COUNTIF removes duplicates for counting unique values. Master this and you'll use it constantly.",
+    level: "advanced",
   },
   {
-    name: "NETWORKDAYS / WORKDAY",
-    syntax: "=NETWORKDAYS(start, end, [holidays])\n=WORKDAY(start, days, [holidays])",
-    description: "NETWORKDAYS counts business days between dates. WORKDAY finds the date N business days from a start date.",
-    example: "=NETWORKDAYS(SigningDate, ClosingDate)\n→ business days to close\n=WORKDAY(TradeDate, 2, holidays)\n→ T+2 settlement date",
-    tip: "Always pass a holiday range as the third argument for accurate settlement calculations. NETWORKDAYS.INTL lets you customise the weekend definition (useful for Middle East markets).",
+    name: "INDIRECT (with structured references)",
+    syntax: "=INDIRECT(ref_text, [a1])\nUsed with Table references: INDIRECT(\"Table1[Column]\")",
+    description: "Dynamic table column references: build the table column name as a string, then resolve it at runtime. Powerful for dashboards with user-selected metrics.",
+    example: "=SUM(INDIRECT(\"Deal_Table[\"&A1&\"]\" ))\n→ if A1 = \"Revenue\", sums Deal_Table[Revenue]\n→ if A1 = \"EBITDA\", sums Deal_Table[EBITDA]\n\n=INDIRECT(\"'\"\&SheetName_Cell&\"'!B5\")\n→ dynamic cross-sheet reference based on a dropdown",
+    tip: "⚠️ INDIRECT is volatile — recalculates on every workbook change. In models with thousands of formulas, this causes significant slowdown. Use sparingly and never in large loops. Consider INDEX instead where possible.",
+    level: "advanced",
   },
   {
-    name: "GETPIVOTDATA",
-    syntax: "=GETPIVOTDATA(data_field, pivot_table, [field1, item1]...)",
-    description: "Extracts specific data from a pivot table dynamically — more robust than cell references that break when a pivot refreshes.",
-    example: '=GETPIVOTDATA("Revenue", A3, "Region", "APAC", "Year", 2024)',
-    tip: "Excel auto-generates GETPIVOTDATA when you click inside a pivot from outside. To disable and use regular references: PivotTable Options → uncheck 'Generate GetPivotData'.",
+    name: "TEXTSPLIT",
+    syntax: "=TEXTSPLIT(text, col_delimiter, [row_delimiter], [ignore_empty], [match_mode], [pad_with])",
+    description: "Split a text string into an array by one or more delimiters — horizontally, vertically, or into a 2D grid. Replaces years of manual Text-to-Columns and FIND/MID formulas.",
+    example: '=TEXTSPLIT(A1, ",")\n→ splits "Apple,Google,Meta" into 3 columns\n\n=TEXTSPLIT(A1, ",", CHAR(10))\n→ splits on both commas AND line breaks into a 2D grid\n\n=SORT(UNIQUE(TEXTSPLIT(Tags, ",")))\n→ deduplicated sorted list from a comma-delimited tag field',
+    tip: "TEXTSPLIT spills into as many cells as needed — no pre-allocating space. Combine with UNIQUE+SORT for instant tag/category extraction from messy text fields. Available in Excel 365 only.",
+    level: "advanced",
   },
   {
-    name: "Power Query (Get & Transform)",
-    syntax: "Data → Get Data → From Table/Range or From File",
-    description: "Not a formula — Excel's built-in ETL tool. Automates data cleaning, combining, and reshaping that would otherwise take hours manually.",
-    example: "Load 12 monthly CSVs → combine → remove blanks → unpivot → load to model. Refreshes in one click when new data arrives.",
-    tip: "Learn 'Merge Queries' (like a SQL JOIN) and 'Unpivot Columns' first — these two alone will save you hours a week. Every analyst should know Power Query basics.",
+    name: "GROUPBY / PIVOTBY",
+    syntax: "=GROUPBY(row_fields, values, function, [field_headers], [total_depth], [sort_order], [filter_array])\n=PIVOTBY(row_fields, col_fields, values, function, ...)",
+    description: "Native pivot-table-style aggregation inside a cell formula — no pivot table required. GROUPBY aggregates by row dimension; PIVOTBY creates a full row × column summary.",
+    example: '=GROUPBY(Sector, Revenue, SUM)\n→ total revenue by sector, sorted automatically\n\n=PIVOTBY(Year, Region, Revenue, SUM)\n→ revenue grid: years as rows, regions as columns\n\n=GROUPBY(Manager, {Revenue,Deals}, {SUM,COUNTA})\n→ multi-metric summary per manager in one formula',
+    tip: "GROUPBY/PIVOTBY are the dynamic array replacement for pivot tables. They spill, update automatically, and can be filtered and sorted inline. Filter with the filter_array argument: =GROUPBY(Sector, Rev, SUM, , , , Year=2024)",
+    level: "expert",
+  },
+  {
+    name: "CHOOSEROWS / CHOOSECOLS",
+    syntax: "=CHOOSEROWS(array, row1, [row2,...])\n=CHOOSECOLS(array, col1, [col2,...])",
+    description: "Return specific rows or columns from an array by index — including negative indexes to count from the end. Perfect for extracting the first/last N rows or reordering columns dynamically.",
+    example: "=CHOOSEROWS(Data, 1, -1)\n→ first and last row of a dataset\n\n=CHOOSECOLS(Table, 1, 3, 5)\n→ columns 1, 3, and 5 only\n\n=CHOOSEROWS(SORT(Data, 2, -1), SEQUENCE(5))\n→ top 5 rows after sorting by column 2 descending",
+    tip: "Negative indexes count from the end: CHOOSEROWS(Data, -1) = last row. This is the clean way to get the most recent entry from a table without OFFSET or MATCH workarounds.",
+    level: "advanced",
+  },
+  {
+    name: "VSTACK / HSTACK",
+    syntax: "=VSTACK(array1, [array2,...])\n=HSTACK(array1, [array2,...])",
+    description: "Vertically or horizontally combine multiple arrays/ranges into one. The clean, formula-based replacement for copy-pasting ranges together.",
+    example: "=VSTACK(Q1_Data, Q2_Data, Q3_Data, Q4_Data)\n→ full-year data table, auto-updating as each quarter fills\n\n=HSTACK(Names, Scores, BYROW(Scores,LAMBDA(r,MAX(r))))\n→ original table with computed max column appended\n\n=VSTACK(Header_Row, SORT(Data, 1))\n→ sorted data with original header preserved",
+    tip: "VSTACK/HSTACK are essential for combining data from multiple sheets or tables without Power Query. Pair with VSTACK + FILTER to stack results from multiple filtered queries.",
+    level: "advanced",
+  },
+  {
+    name: "TOROW / TOCOL",
+    syntax: "=TOROW(array, [ignore], [scan_by_column])\n=TOCOL(array, [ignore], [scan_by_column])",
+    description: "Flatten a 2D range into a single row or column, with optional blank/error filtering. The formula-based replacement for unstack operations that previously required Power Query.",
+    example: "=TOROW(A1:D5)\n→ 20-cell 2D range flattened into a single row\n\n=TOCOL(A1:D5, 1)\n→ flatten to column, ignoring blanks\n\n=UNIQUE(TOCOL(Tags_Table, 1))\n→ unique tags extracted from a 2D tag matrix",
+    tip: "ignore parameter: 0 = keep all, 1 = ignore blanks, 2 = ignore errors, 3 = ignore blanks and errors. TOCOL + UNIQUE is the formula-only way to deduplicate a 2D range.",
+    level: "advanced",
+  },
+  {
+    name: "ISOMITTED",
+    syntax: "=ISOMITTED(argument) — used inside LAMBDA",
+    description: "Returns TRUE if an optional LAMBDA parameter was not provided by the caller. Enables default parameter values in custom LAMBDA functions — proper optional arguments.",
+    example: "=LAMBDA(value, [decimals],\n  LET(\n    d, IF(ISOMITTED(decimals), 2, decimals),\n    ROUND(value, d)\n  )\n)\n\nUsage: =MY_ROUND(A1) → rounds to 2dp (default)\n       =MY_ROUND(A1, 4) → rounds to 4dp",
+    tip: "ISOMITTED is only meaningful inside a LAMBDA with optional parameters (defined with [brackets]). Without ISOMITTED, referencing an omitted parameter returns a #VALUE! error. This is what makes production-quality LAMBDAs possible.",
+    level: "expert",
+  },
+  {
+    name: "WRAPROWS / WRAPCOLS",
+    syntax: "=WRAPROWS(vector, wrap_count, [pad_with])\n=WRAPCOLS(vector, wrap_count, [pad_with])",
+    description: "Take a 1D range and reshape it into a 2D grid of a specified width (WRAPROWS) or height (WRAPCOLS). The inverse of TOROW/TOCOL.",
+    example: "=WRAPROWS(A1:A12, 4)\n→ reshapes 12 monthly values into a 3×4 quarterly grid\n\n=WRAPROWS(Names, 5, \"\")\n→ wraps a list of names into rows of 5, padding blanks\n\n=WRAPROWS(SORT(Products), 3)\n→ sorted product list arranged 3-per-row",
+    tip: "WRAPROWS/WRAPCOLS are the formula-based reshape tools. The pad_with parameter fills any short final row — use \"\" for blank padding or NA() to make gaps visible.",
+    level: "advanced",
+  },
+  {
+    name: "TRIMRANGE",
+    syntax: "=TRIMRANGE(array, [trim_rows], [trim_cols])",
+    description: "Removes trailing blank rows and/or columns from an array or range — returns only the data-containing portion. Critical when working with dynamic ranges where data length varies.",
+    example: "=TRIMRANGE(A:D, 3, 3)\n→ entire columns A:D with trailing blank rows AND columns removed\n\n=ROWS(TRIMRANGE(Data_Table))\n→ actual count of non-blank rows in a variable-length range\n\n=SORT(TRIMRANGE(Input_Range))\n→ sort only the populated rows, not the entire column",
+    tip: "trim_rows/trim_cols: 0=no trimming, 1=trim start, 2=trim end, 3=trim both. TRIMRANGE solves the 'my SORT/UNIQUE includes empty rows from the whole column' problem cleanly.",
+    level: "advanced",
+  },
+  {
+    name: "XMATCH (advanced)",
+    syntax: "=XMATCH(lookup, lookup_array, [match_mode], [search_mode])",
+    description: "The modern MATCH replacement. Binary search option for huge datasets, nearest match, wildcard, and reverse search — all in one function without MATCH's quirks.",
+    example: "Binary search (sorted data, massive speed gain):\n=XMATCH(Target, Rate_Schedule, 1, 2)\n→ binary search for nearest value ≥ Target in sorted range\n\nLast occurrence:\n=XMATCH(\"APAC\", Region, 0, -1)\n→ row index of the most recent APAC entry\n\nWildcard:\n=XMATCH(\"*Goldman*\", Counterparty, 2)",
+    tip: "search_mode=2 uses binary search — orders of magnitude faster than linear scan on sorted ranges with 100k+ rows. This is the right choice for large lookup tables in production models.",
+    level: "advanced",
   },
 ];
 
@@ -159,6 +189,11 @@ function getWeekNumber(): number {
   const week1 = new Date(d.getFullYear(), 0, 4);
   return 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
 }
+
+const LEVEL_STYLE: Record<string, string> = {
+  advanced: "bg-blue-100 text-blue-700",
+  expert: "bg-purple-100 text-purple-700",
+};
 
 export default function ExcelFunctionCard() {
   const [showExample, setShowExample] = useState(false);
@@ -171,16 +206,16 @@ export default function ExcelFunctionCard() {
           <h2 className="section-title">📊 Excel Function of the Week</h2>
           <p className="text-xs text-slate-400 mt-0.5">Resets every Monday</p>
         </div>
-        <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0">
-          New week
+        <span className={`text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0 ${LEVEL_STYLE[fn.level]}`}>
+          {fn.level}
         </span>
       </div>
 
       {/* Function name */}
       <div className="bg-slate-800 rounded-2xl px-4 py-3 mb-3">
-        <p className="text-xs text-slate-400 mb-1 font-mono">Excel</p>
-        <p className="text-xl font-bold text-white font-mono">{fn.name}</p>
-        <p className="text-xs text-emerald-400 font-mono mt-1 leading-relaxed break-all">{fn.syntax}</p>
+        <p className="text-xs text-slate-400 mb-1 font-mono">Excel 365</p>
+        <p className="text-lg font-bold text-white font-mono leading-tight">{fn.name}</p>
+        <p className="text-xs text-emerald-400 font-mono mt-1.5 leading-relaxed whitespace-pre-line break-all">{fn.syntax}</p>
       </div>
 
       {/* Description */}
@@ -191,13 +226,13 @@ export default function ExcelFunctionCard() {
         onClick={() => setShowExample((v) => !v)}
         className="text-xs font-semibold text-blue-600 mb-2"
       >
-        {showExample ? "▲ Hide example" : "▼ Show example"}
+        {showExample ? "▲ Hide examples" : "▼ Show examples"}
       </button>
 
       {showExample && (
-        <div className="bg-slate-50 rounded-xl px-3 py-2.5 mb-3">
-          <p className="text-xs text-slate-400 font-semibold mb-1">Example</p>
-          <p className="text-xs font-mono text-slate-700 whitespace-pre-line leading-relaxed">{fn.example}</p>
+        <div className="bg-slate-800 rounded-xl px-3 py-3 mb-3">
+          <p className="text-xs text-slate-400 font-semibold mb-2 font-mono">Examples</p>
+          <p className="text-xs font-mono text-emerald-300 whitespace-pre-line leading-relaxed">{fn.example}</p>
         </div>
       )}
 

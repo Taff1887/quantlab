@@ -7,6 +7,7 @@ import WeatherCard from "./WeatherCard";
 import TransportCard from "./TransportCard";
 import CommutePlanner from "./CommutePlanner";
 import ExcelFunctionCard from "./ExcelFunctionCard";
+import ShortcutQuiz from "./ShortcutQuiz";
 import ChoreCountdown from "./ChoreCountdown";
 import LifeAdmin from "./LifeAdmin";
 import GymTracker from "./GymTracker";
@@ -18,7 +19,7 @@ export default function Dashboard() {
     <div className="min-h-screen">
       <Header />
 
-      {/* Top banner area — full width, no horizontal padding */}
+      {/* Top banner area */}
       <FunFactCard />
       <div className="max-w-lg mx-auto pb-2">
         <NewsCard />
@@ -30,6 +31,7 @@ export default function Dashboard() {
         <TransportCard />
         <CommutePlanner />
         <ExcelFunctionCard />
+        <ShortcutQuiz />
         <ChoreCountdown />
         <LifeAdmin />
         <GymTracker />
