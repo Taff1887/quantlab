@@ -34,6 +34,7 @@ const SORT_LABELS: Record<SortKey, string> = {
 
 export default function TransportCard() {
   const [options, setOptions] = useState<TransportOption[]>([]);
+  const [isRealtime, setIsRealtime] = useState(false);
   const [mode, setMode] = useState<PrimaryMode>("all");
   const [selectedWharves, setSelectedWharves] = useState<WharfName[]>([
     "Taronga Zoo", "South Mosman", "Mosman Bay", "Cremorne Point",
@@ -43,7 +44,10 @@ export default function TransportCard() {
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    fetchTransportOptions().then(setOptions);
+    fetchTransportOptions().then(({ options, isRealtime }) => {
+      setOptions(options);
+      setIsRealtime(isRealtime);
+    });
   }, []);
 
   // Reset expanded when filters change
@@ -89,7 +93,12 @@ export default function TransportCard() {
     <div className="card">
       {/* Header */}
       <div className="mb-4">
-        <h2 className="section-title">Commute</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="section-title">Commute</h2>
+          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${isRealtime ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400"}`}>
+            {isRealtime ? "🟢 Live" : "Schedule"}
+          </span>
+        </div>
         <p className="text-xs text-slate-400 mt-0.5">
           1 Rickard Ave, Mosman → 1 Farrer Place, Sydney
         </p>
@@ -272,7 +281,7 @@ export default function TransportCard() {
       </div>
 
       <p className="text-xs text-slate-300 text-center mt-4">
-        Mock data · TfNSW + Google Maps APIs coming soon
+        {isRealtime ? "Live TfNSW data" : "TfNSW schedule · add TFNSW_API_KEY for live times"}
       </p>
     </div>
   );

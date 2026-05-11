@@ -359,7 +359,7 @@ export default function CommutePlanner() {
           )}
 
           <p className="text-xs text-slate-300 text-center mt-2">
-            Mock timetable · TfNSW API coming soon
+            Based on TfNSW published timetable
           </p>
         </div>
       )}

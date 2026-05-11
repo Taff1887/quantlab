@@ -31,7 +31,7 @@ export default function WeatherCard() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="section-title">Sydney Weather</h2>
-        <span className="text-xs text-slate-400">Mock data</span>
+        <span className="text-xs text-slate-400">Live · Mosman</span>
       </div>
 
       {/* Day tabs */}
