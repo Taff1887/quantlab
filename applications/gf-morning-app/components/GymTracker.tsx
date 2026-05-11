@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import type { GymSession, WorkoutType } from "@/types";
-import { getItem, setItem } from "@/lib/storage";
+import type { GymSession, WorkoutType } from "../types";
+import { getItem, setItem } from "../lib/storage";
 
 const STORAGE_KEY = "mcc_gym_sessions";
 

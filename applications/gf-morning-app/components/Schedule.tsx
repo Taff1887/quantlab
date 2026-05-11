@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import type { WharfName, PrimaryMode } from "@/types";
+import type { WharfName, PrimaryMode } from "../types";
 import {
   generateAllTrips,
   filterTrips,
@@ -8,7 +8,7 @@ import {
   tripsArrivingBy,
   formatDist,
   type ScheduleTrip,
-} from "@/lib/scheduleService";
+} from "../lib/scheduleService";
 
 type SearchMode = "leaving" | "arriving";
 

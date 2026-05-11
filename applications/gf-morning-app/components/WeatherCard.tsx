@@ -1,13 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
-import type { WeatherData } from "@/types";
+import type { WeatherData } from "../types";
 import {
   fetchWeather,
   getClothingRec,
   getUmbrellaRec,
   CLOTHING_LABEL,
   CONDITION_EMOJI,
-} from "@/lib/weatherService";
+} from "../lib/weatherService";
 
 export default function WeatherCard() {
   const [weather, setWeather] = useState<WeatherData | null>(null);

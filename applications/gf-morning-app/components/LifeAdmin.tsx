@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import type { Task } from "@/types";
-import { getItem, setItem } from "@/lib/storage";
+import type { Task } from "../types";
+import { getItem, setItem } from "../lib/storage";
 
 const STORAGE_KEY = "mcc_life_admin";
 

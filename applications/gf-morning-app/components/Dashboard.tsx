@@ -1,14 +1,14 @@
 "use client";
-import Header from "@/components/Header";
-import QuoteCard from "@/components/QuoteCard";
-import WeatherCard from "@/components/WeatherCard";
-import TransportCard from "@/components/TransportCard";
-import Schedule from "@/components/Schedule";
-import CommutePlanner from "@/components/CommutePlanner";
-import ChoreCountdown from "@/components/ChoreCountdown";
-import LifeAdmin from "@/components/LifeAdmin";
-import GymTracker from "@/components/GymTracker";
-import LastDate from "@/components/LastDate";
+import Header from "./Header";
+import QuoteCard from "./QuoteCard";
+import WeatherCard from "./WeatherCard";
+import TransportCard from "./TransportCard";
+import Schedule from "./Schedule";
+import CommutePlanner from "./CommutePlanner";
+import ChoreCountdown from "./ChoreCountdown";
+import LifeAdmin from "./LifeAdmin";
+import GymTracker from "./GymTracker";
+import LastDate from "./LastDate";
 
 export default function Dashboard() {
   return (

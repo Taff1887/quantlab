@@ -1,11 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
-import type { TransportOption, PrimaryMode, WharfName } from "@/types";
+import type { TransportOption, PrimaryMode, WharfName } from "../types";
 import {
   fetchTransportOptions,
   leaveByWalking,
   leaveByDriving,
-} from "@/lib/transportService";
+} from "../lib/transportService";
 
 const FERRY_WHARVES: { label: string; value: WharfName | "all" }[] = [
   { label: "All wharves", value: "all" },

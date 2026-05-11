@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import type { FerryDeparture, WharfName } from "@/types";
-import { fetchFerryDepartures } from "@/lib/transportService";
+import type { FerryDeparture, WharfName } from "../types";
+import { fetchFerryDepartures } from "../lib/transportService";
 
 type WharfFilter = "all" | WharfName;
 

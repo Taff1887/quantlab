@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import type { DateNight } from "@/types";
-import { getItem, setItem } from "@/lib/storage";
+import type { DateNight } from "../types";
+import { getItem, setItem } from "../lib/storage";
 
 const STORAGE_KEY = "mcc_date_nights";
 

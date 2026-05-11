@@ -1,13 +1,13 @@
 "use client";
 import { useMemo, useState } from "react";
-import type { WharfName, PrimaryMode } from "@/types";
+import type { WharfName, PrimaryMode } from "../types";
 import {
   generateAllTrips,
   filterTrips,
   tripsArrivingBy,
   formatDist,
   type ScheduleTrip,
-} from "@/lib/scheduleService";
+} from "../lib/scheduleService";
 
 const FERRY_WHARVES: { label: string; value: WharfName | "all" }[] = [
   { label: "All wharves", value: "all" },

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { getGreeting } from "@/lib/greetingService";
+import { getGreeting } from "../lib/greetingService";
 
 export default function Header() {
   const [now, setNow] = useState<Date | null>(null);

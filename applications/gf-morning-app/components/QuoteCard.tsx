@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
-import { getDailyQuote } from "@/lib/quoteService";
-import type { Quote } from "@/lib/quoteService";
+import { getDailyQuote } from "../lib/quoteService";
+import type { Quote } from "../lib/quoteService";
 
 export default function QuoteCard() {
   const [quote, setQuote] = useState<Quote | null>(null);
