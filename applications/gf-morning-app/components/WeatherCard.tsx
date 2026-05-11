@@ -20,7 +20,7 @@ export default function WeatherCard() {
     return <div className="card animate-pulse h-56" />;
   }
 
-  const clothing = getClothingRec(weather.temperature);
+  const clothing = getClothingRec(weather.morningTemp, weather.eveningTemp);
   const umbrella = getUmbrellaRec(weather.morningRainChance, weather.eveningRainChance);
   const emoji = CONDITION_EMOJI[weather.condition] ?? "🌤️";
   const updated = new Date(weather.lastUpdated).toLocaleTimeString("en-AU", {
@@ -50,28 +50,20 @@ export default function WeatherCard() {
         </div>
       </div>
 
-      {/* Rain chances */}
+      {/* Morning / Evening breakdown */}
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="bg-slate-50 rounded-2xl p-3">
-          <p className="text-xs text-slate-400 mb-1">Morning rain</p>
-          <p className="text-xs text-slate-400 mb-1">7am – 9am</p>
-          <p
-            className={`text-2xl font-bold ${
-              weather.morningRainChance > 40 ? "text-blue-500" : "text-slate-700"
-            }`}
-          >
-            {weather.morningRainChance}%
+          <p className="text-xs font-semibold text-slate-500 mb-2">🌅 Morning (7–9am)</p>
+          <p className="text-2xl font-bold text-slate-800">{weather.morningTemp}°</p>
+          <p className={`text-xs font-semibold mt-1 ${weather.morningRainChance > 40 ? "text-blue-500" : "text-slate-400"}`}>
+            💧 {weather.morningRainChance}% rain
           </p>
         </div>
         <div className="bg-slate-50 rounded-2xl p-3">
-          <p className="text-xs text-slate-400 mb-1">Evening rain</p>
-          <p className="text-xs text-slate-400 mb-1">5pm – 10pm</p>
-          <p
-            className={`text-2xl font-bold ${
-              weather.eveningRainChance > 40 ? "text-blue-500" : "text-slate-700"
-            }`}
-          >
-            {weather.eveningRainChance}%
+          <p className="text-xs font-semibold text-slate-500 mb-2">🌆 Evening (5–8pm)</p>
+          <p className="text-2xl font-bold text-slate-800">{weather.eveningTemp}°</p>
+          <p className={`text-xs font-semibold mt-1 ${weather.eveningRainChance > 40 ? "text-blue-500" : "text-slate-400"}`}>
+            💧 {weather.eveningRainChance}% rain
           </p>
         </div>
       </div>

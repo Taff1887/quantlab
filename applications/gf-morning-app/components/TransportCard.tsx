@@ -7,8 +7,7 @@ import {
   leaveByDriving,
 } from "../lib/transportService";
 
-const FERRY_WHARVES: { label: string; value: WharfName | "all" }[] = [
-  { label: "All wharves", value: "all" },
+const FERRY_WHARVES: { label: string; value: WharfName }[] = [
   { label: "Taronga Zoo", value: "Taronga Zoo" },
   { label: "South Mosman", value: "South Mosman" },
   { label: "Mosman Bay", value: "Mosman Bay" },
@@ -16,7 +15,6 @@ const FERRY_WHARVES: { label: string; value: WharfName | "all" }[] = [
 ];
 
 const BUS_ROUTES: { label: string; value: string }[] = [
-  { label: "All buses", value: "all" },
   { label: "Route 144 · Military Rd", value: "bus-144" },
   { label: "Route 178 · Spit Rd", value: "bus-178" },
 ];
@@ -28,23 +26,37 @@ function formatDist(m: number): string {
 export default function TransportCard() {
   const [options, setOptions] = useState<TransportOption[]>([]);
   const [mode, setMode] = useState<PrimaryMode>("all");
-  const [ferryWharf, setFerryWharf] = useState<WharfName | "all">("all");
-  const [busRoute, setBusRoute] = useState<string>("all");
+  const [selectedWharves, setSelectedWharves] = useState<WharfName[]>([
+    "Taronga Zoo", "South Mosman", "Mosman Bay", "Cremorne Point",
+  ]);
+  const [selectedBuses, setSelectedBuses] = useState<string[]>(["bus-144", "bus-178"]);
 
   useEffect(() => {
     fetchTransportOptions().then(setOptions);
   }, []);
 
+  function toggleWharf(w: WharfName) {
+    setSelectedWharves((prev) =>
+      prev.includes(w) ? prev.filter((x) => x !== w) : [...prev, w]
+    );
+  }
+
+  function toggleBus(b: string) {
+    setSelectedBuses((prev) =>
+      prev.includes(b) ? prev.filter((x) => x !== b) : [...prev, b]
+    );
+  }
+
   const visible = options.filter((o) => {
     if (mode === "ferry") {
       if (o.mode !== "ferry") return false;
-      return ferryWharf === "all" || o.wharf === ferryWharf;
+      return selectedWharves.length === 0 || selectedWharves.includes(o.wharf as WharfName);
     }
     if (mode === "bus") {
       if (o.mode !== "bus") return false;
-      return busRoute === "all" || o.id === busRoute;
+      return selectedBuses.length === 0 || selectedBuses.includes(o.id);
     }
-    return true; // "all"
+    return true;
   });
 
   return (
@@ -74,33 +86,48 @@ export default function TransportCard() {
         ))}
       </div>
 
-      {/* Secondary wharf/route filter */}
+      {/* Multi-select wharf chips */}
       {mode === "ferry" && (
-        <select
-          value={ferryWharf}
-          onChange={(e) => setFerryWharf(e.target.value as WharfName | "all")}
-          className="input mb-4 text-sm text-slate-700"
-        >
-          {FERRY_WHARVES.map((w) => (
-            <option key={w.value} value={w.value}>
-              {w.label}
-            </option>
-          ))}
-        </select>
+        <div className="flex flex-wrap gap-2 mb-4">
+          {FERRY_WHARVES.map((w) => {
+            const active = selectedWharves.includes(w.value as WharfName);
+            return (
+              <button
+                key={w.value}
+                onClick={() => toggleWharf(w.value as WharfName)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
+                  active
+                    ? "bg-blue-600 text-white"
+                    : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                }`}
+              >
+                {w.label}
+              </button>
+            );
+          })}
+        </div>
       )}
 
+      {/* Multi-select bus chips */}
       {mode === "bus" && (
-        <select
-          value={busRoute}
-          onChange={(e) => setBusRoute(e.target.value)}
-          className="input mb-4 text-sm text-slate-700"
-        >
-          {BUS_ROUTES.map((r) => (
-            <option key={r.value} value={r.value}>
-              {r.label}
-            </option>
-          ))}
-        </select>
+        <div className="flex flex-wrap gap-2 mb-4">
+          {BUS_ROUTES.map((r) => {
+            const active = selectedBuses.includes(r.value);
+            return (
+              <button
+                key={r.value}
+                onClick={() => toggleBus(r.value)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
+                  active
+                    ? "bg-blue-600 text-white"
+                    : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                }`}
+              >
+                {r.label}
+              </button>
+            );
+          })}
+        </div>
       )}
 
       {/* Option cards */}

@@ -2,9 +2,11 @@
 // Weather
 // =============================================================================
 export interface WeatherData {
-  temperature: number;
+  temperature: number;    // current / daytime
   feelsLike: number;
   condition: string;
+  morningTemp: number;    // ~7am–9am
+  eveningTemp: number;    // ~5pm–8pm
   morningRainChance: number; // 7am–9am %
   eveningRainChance: number; // 5pm–10pm %
   lastUpdated: string;
