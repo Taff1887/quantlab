@@ -5,10 +5,12 @@ import {
   generateAllTrips,
   filterTrips,
   tripsArrivingBy,
-  tripsArrivingNear,
   formatDist,
+  toMins,
   type ScheduleTrip,
 } from "../lib/scheduleService";
+
+type SortKey = "arrival" | "commute";
 
 const FERRY_WHARVES: { label: string; value: WharfName | "all" }[] = [
   { label: "All wharves", value: "all" },
@@ -30,12 +32,18 @@ function tomorrowStr() {
   return d.toISOString().split("T")[0];
 }
 
-function PlannerTripCard({ trip, rank }: { trip: ScheduleTrip; rank: number }) {
-  const isTop = rank === 0;
+// Compact trip row — used for greyed/black nearby rows
+function TripRow({
+  trip,
+  dim,
+}: {
+  trip: ScheduleTrip;
+  dim?: boolean;
+}) {
   return (
     <div
-      className={`rounded-2xl border overflow-hidden ${
-        isTop ? "border-emerald-200 bg-emerald-50/40" : "border-slate-100 bg-slate-50/40"
+      className={`rounded-2xl border overflow-hidden transition-all ${
+        dim ? "border-slate-100 bg-white opacity-40" : "border-slate-100 bg-slate-50/40"
       }`}
     >
       {/* Header */}
@@ -47,11 +55,6 @@ function PlannerTripCard({ trip, rank }: { trip: ScheduleTrip; rank: number }) {
             <p className="text-xs text-slate-400">{trip.routeName}</p>
           </div>
         </div>
-        {isTop && (
-          <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full flex-shrink-0">
-            Best option
-          </span>
-        )}
       </div>
 
       {/* Walk / Drive chips */}
@@ -84,7 +87,7 @@ function PlannerTripCard({ trip, rank }: { trip: ScheduleTrip; rank: number }) {
 
       <div className="mx-4 border-t border-slate-100" />
 
-      {/* Leave by — the most important info */}
+      {/* Leave by */}
       <div className="px-4 py-3">
         <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">
           Leave home by
@@ -107,25 +110,61 @@ function PlannerTripCard({ trip, rank }: { trip: ScheduleTrip; rank: number }) {
   );
 }
 
+interface Results {
+  main: ScheduleTrip[];
+  justLate: ScheduleTrip[];   // arrives target+1 → target+5  (shown in black, slightly dim)
+  nearlyLate: ScheduleTrip[]; // arrives target+6 → target+15 (greyed out)
+}
+
 export default function CommutePlanner() {
   const [arrivalTime, setArrivalTime] = useState("09:00");
   const [date, setDate] = useState(tomorrowStr());
   const [mode, setMode] = useState<PrimaryMode>("all");
   const [ferryWharf, setFerryWharf] = useState<WharfName | "all">("all");
   const [busRoute, setBusRoute] = useState("all");
-  const [results, setResults] = useState<ScheduleTrip[] | null>(null);
-  const [nearby, setNearby] = useState<ScheduleTrip[] | null>(null);
+  const [sort, setSort] = useState<SortKey>("arrival");
+  const [results, setResults] = useState<Results | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const allTrips = useMemo(() => generateAllTrips(), []);
 
   function handlePlan() {
+    setExpanded(false);
     const filtered = filterTrips(allTrips, {
       mode: mode === "all" ? undefined : mode,
       wharf: mode === "ferry" ? ferryWharf : undefined,
       busRoute: mode === "bus" ? busRoute : undefined,
     });
-    setResults(tripsArrivingBy(filtered, arrivalTime).slice(0, 5));
-    setNearby(tripsArrivingNear(filtered, arrivalTime, 30).slice(0, 3));
+
+    const byMins = toMins(arrivalTime);
+
+    // Main: arrives ≤ target AND ≥ target - 45min
+    const onTime = tripsArrivingBy(filtered, arrivalTime).filter(
+      (t) => toMins(t.officeArrival) >= byMins - 45
+    );
+
+    // Just late: arrives target+1 → target+5 (shown in black)
+    const justLate = filtered
+      .filter((t) => {
+        const a = toMins(t.officeArrival);
+        return a > byMins && a <= byMins + 5;
+      })
+      .sort((a, b) => toMins(a.officeArrival) - toMins(b.officeArrival));
+
+    // Nearly late: arrives target+6 → target+15 (greyed)
+    const nearlyLate = filtered
+      .filter((t) => {
+        const a = toMins(t.officeArrival);
+        return a > byMins + 5 && a <= byMins + 15;
+      })
+      .sort((a, b) => toMins(a.officeArrival) - toMins(b.officeArrival));
+
+    // Sort main results
+    const sortFn = sort === "arrival"
+      ? (a: ScheduleTrip, b: ScheduleTrip) => toMins(a.officeArrival) - toMins(b.officeArrival)
+      : (a: ScheduleTrip, b: ScheduleTrip) => a.totalMins - b.totalMins;
+
+    setResults({ main: onTime.sort(sortFn), justLate, nearlyLate });
   }
 
   const dateLabel = (() => {
@@ -133,8 +172,20 @@ export default function CommutePlanner() {
     const tomorrow = tomorrowStr();
     if (date === today) return "Today";
     if (date === tomorrow) return "Tomorrow";
-    return new Date(date).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "short" });
+    return new Date(date).toLocaleDateString("en-AU", {
+      weekday: "long",
+      day: "numeric",
+      month: "short",
+    });
   })();
+
+  const INITIAL_SHOW = 3;
+  const visibleMain = results
+    ? expanded
+      ? results.main
+      : results.main.slice(0, INITIAL_SHOW)
+    : [];
+  const hasMore = results ? results.main.length > INITIAL_SHOW : false;
 
   return (
     <div className="card">
@@ -145,7 +196,7 @@ export default function CommutePlanner() {
         </p>
       </div>
 
-      {/* Arrive by */}
+      {/* Arrive by + Date */}
       <div className="grid grid-cols-2 gap-2 mb-3">
         <div>
           <label className="label">Arrive by</label>
@@ -165,6 +216,27 @@ export default function CommutePlanner() {
             className="input text-sm"
           />
         </div>
+      </div>
+
+      {/* Sort pills */}
+      <div className="flex gap-2 mb-3 items-center flex-wrap">
+        <span className="text-xs text-slate-400">Sort:</span>
+        {([
+          { key: "arrival", label: "Arrival" },
+          { key: "commute", label: "Commute time" },
+        ] as { key: SortKey; label: string }[]).map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => { setSort(key); setResults(null); }}
+            className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+              sort === key
+                ? "bg-slate-800 text-white"
+                : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* Mode toggle */}
@@ -215,44 +287,73 @@ export default function CommutePlanner() {
       {/* Results */}
       {results !== null && (
         <div className="space-y-3">
-          {results.length === 0 ? (
+          {results.main.length === 0 && results.justLate.length === 0 ? (
             <p className="text-center text-slate-400 text-sm py-6">
-              No options arrive by {arrivalTime}. Try a later arrival time.
+              No options arrive within 45 min of {arrivalTime}. Try a later time.
             </p>
           ) : (
             <>
-              <p className="text-xs text-slate-400 font-medium">
-                {results.length} option{results.length !== 1 ? "s" : ""} get you there by {arrivalTime}
-              </p>
-              {results.map((t, i) => (
-                <PlannerTripCard key={t.id} trip={t} rank={i} />
+              {results.main.length > 0 && (
+                <p className="text-xs text-slate-400 font-medium">
+                  {results.main.length} option{results.main.length !== 1 ? "s" : ""} get you there by {arrivalTime}
+                </p>
+              )}
+
+              {/* On-time results */}
+              {visibleMain.map((t) => (
+                <TripRow key={t.id} trip={t} />
               ))}
 
-              {nearby && nearby.length > 0 && (
-                <div className="mt-4">
-                  <div className="flex items-center gap-2 mb-3">
+              {/* Show more / less */}
+              {hasMore && (
+                <button
+                  onClick={() => setExpanded((v) => !v)}
+                  className="w-full py-2 text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors"
+                >
+                  {expanded
+                    ? "▲ Show less"
+                    : `▼ Show ${results.main.length - INITIAL_SHOW} more option${results.main.length - INITIAL_SHOW !== 1 ? "s" : ""}`}
+                </button>
+              )}
+
+              {/* Just late — arrives target+1 to target+5 — slightly dim */}
+              {results.justLate.length > 0 && (
+                <div className="mt-2">
+                  <div className="flex items-center gap-2 mb-2">
                     <div className="flex-1 border-t border-slate-100" />
                     <span className="text-xs text-slate-400 font-medium flex-shrink-0">
-                      Just after — arriving up to 30 min later
+                      Up to 5 min late
                     </span>
                     <div className="flex-1 border-t border-slate-100" />
                   </div>
                   <div className="space-y-3">
-                    {nearby.map((t) => (
-                      <div key={t.id}>
-                        <p className="text-xs text-slate-400 mb-1 ml-1">
-                          Arrives ~{t.officeArrival}
-                        </p>
-                        <div className="opacity-50 grayscale">
-                          <PlannerTripCard trip={t} rank={99} />
-                        </div>
-                      </div>
+                    {results.justLate.map((t) => (
+                      <TripRow key={t.id} trip={t} dim={false} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Nearly late — arrives target+6 to target+15 — greyed */}
+              {results.nearlyLate.length > 0 && (
+                <div className="mt-2">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="flex-1 border-t border-slate-100" />
+                    <span className="text-xs text-slate-400 font-medium flex-shrink-0">
+                      6–15 min late
+                    </span>
+                    <div className="flex-1 border-t border-slate-100" />
+                  </div>
+                  <div className="space-y-3">
+                    {results.nearlyLate.map((t) => (
+                      <TripRow key={t.id} trip={t} dim />
                     ))}
                   </div>
                 </div>
               )}
             </>
           )}
+
           <p className="text-xs text-slate-300 text-center mt-2">
             Mock timetable · TfNSW API coming soon
           </p>
