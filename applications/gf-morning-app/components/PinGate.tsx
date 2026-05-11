@@ -3,43 +3,41 @@ import { useEffect, useState } from "react";
 
 const STORAGE_KEY = "mcc_auth";
 const CORRECT_PIN = process.env.NEXT_PUBLIC_APP_PIN ?? "";
+const PIN_LENGTH = CORRECT_PIN.length || 4;
 
 export default function PinGate({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<"loading" | "locked" | "unlocked">("loading");
   const [pin, setPin] = useState("");
   const [shake, setShake] = useState(false);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
+    if (!CORRECT_PIN) {
+      setStatus("unlocked");
+      return;
+    }
     const auth = localStorage.getItem(STORAGE_KEY);
     setStatus(auth === "true" ? "unlocked" : "locked");
   }, []);
 
-  function handleSubmit() {
-    if (pin === CORRECT_PIN) {
+  function attempt(entered: string) {
+    if (entered === CORRECT_PIN) {
       localStorage.setItem(STORAGE_KEY, "true");
       setStatus("unlocked");
     } else {
       setShake(true);
+      setError(true);
       setPin("");
-      setTimeout(() => setShake(false), 600);
+      setTimeout(() => { setShake(false); setError(false); }, 600);
     }
   }
 
   function handleKey(digit: string) {
-    if (pin.length >= 6) return;
+    if (pin.length >= PIN_LENGTH) return;
     const next = pin + digit;
     setPin(next);
-    if (next.length === CORRECT_PIN.length) {
-      setTimeout(() => {
-        if (next === CORRECT_PIN) {
-          localStorage.setItem(STORAGE_KEY, "true");
-          setStatus("unlocked");
-        } else {
-          setShake(true);
-          setPin("");
-          setTimeout(() => setShake(false), 600);
-        }
-      }, 120);
+    if (next.length === PIN_LENGTH) {
+      setTimeout(() => attempt(next), 120);
     }
   }
 
@@ -49,20 +47,20 @@ export default function PinGate({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-50 to-indigo-50 flex flex-col items-center justify-center px-6">
       <div className="w-full max-w-xs">
-        {/* Icon */}
         <div className="text-center mb-8">
           <div className="text-6xl mb-4">☀️</div>
-          <h1 className="text-2xl font-bold text-slate-800">Morning CC</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Good morning, pookie!</h1>
           <p className="text-sm text-slate-400 mt-1">Enter your PIN to continue</p>
         </div>
 
-        {/* PIN dots */}
         <div className={`flex justify-center gap-4 mb-8 ${shake ? "pin-shake" : ""}`}>
-          {Array.from({ length: CORRECT_PIN.length }).map((_, i) => (
+          {Array.from({ length: PIN_LENGTH }).map((_, i) => (
             <div
               key={i}
               className={`w-4 h-4 rounded-full border-2 transition-colors ${
-                i < pin.length
+                error
+                  ? "bg-red-400 border-red-400"
+                  : i < pin.length
                   ? "bg-blue-600 border-blue-600"
                   : "bg-transparent border-slate-300"
               }`}
@@ -70,7 +68,6 @@ export default function PinGate({ children }: { children: React.ReactNode }) {
           ))}
         </div>
 
-        {/* Keypad */}
         <div className="grid grid-cols-3 gap-3">
           {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((d) => (
             <button
@@ -91,7 +88,6 @@ export default function PinGate({ children }: { children: React.ReactNode }) {
             </button>
           ))}
         </div>
-
       </div>
     </div>
   );
