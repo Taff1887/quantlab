@@ -124,7 +124,6 @@ export default function TaffyRating() {
       {/* Header */}
       <div className="mb-4">
         <h2 className="section-title">🌟 How is Taffy doing?</h2>
-        <p className="text-xs text-slate-300 mt-0.5">{weekLabel(currentWeek)}</p>
       </div>
 
       {/* Last rating callout */}

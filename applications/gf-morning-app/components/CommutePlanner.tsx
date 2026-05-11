@@ -159,9 +159,9 @@ export default function CommutePlanner() {
       })
       .sort((a, b) => toMins(a.officeArrival) - toMins(b.officeArrival));
 
-    // Sort main results
+    // Sort main results — arrival = latest first (closest to target at top), commute = shortest first
     const sortFn = sort === "arrival"
-      ? (a: ScheduleTrip, b: ScheduleTrip) => toMins(a.officeArrival) - toMins(b.officeArrival)
+      ? (a: ScheduleTrip, b: ScheduleTrip) => toMins(b.officeArrival) - toMins(a.officeArrival)
       : (a: ScheduleTrip, b: ScheduleTrip) => a.totalMins - b.totalMins;
 
     setResults({ main: onTime.sort(sortFn), justLate, nearlyLate });
@@ -293,13 +293,35 @@ export default function CommutePlanner() {
             </p>
           ) : (
             <>
-              {results.main.length > 0 && (
-                <p className="text-xs text-slate-400 font-medium">
-                  {results.main.length} option{results.main.length !== 1 ? "s" : ""} get you there by {arrivalTime}
-                </p>
+              {/* Just late — arrives target+1 to target+5 — shown first, in black */}
+              {results.justLate.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="flex-1 border-t border-slate-100" />
+                    <span className="text-xs text-slate-400 font-medium flex-shrink-0">
+                      Just after — up to 5 min late
+                    </span>
+                    <div className="flex-1 border-t border-slate-100" />
+                  </div>
+                  <div className="space-y-3">
+                    {results.justLate.map((t) => (
+                      <TripRow key={t.id} trip={t} dim={false} />
+                    ))}
+                  </div>
+                </div>
               )}
 
-              {/* On-time results */}
+              {results.main.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 border-t border-slate-100" />
+                  <span className="text-xs text-slate-400 font-medium flex-shrink-0">
+                    On time — {results.main.length} option{results.main.length !== 1 ? "s" : ""}
+                  </span>
+                  <div className="flex-1 border-t border-slate-100" />
+                </div>
+              )}
+
+              {/* On-time results — latest arrival first */}
               {visibleMain.map((t) => (
                 <TripRow key={t.id} trip={t} />
               ))}
@@ -314,24 +336,6 @@ export default function CommutePlanner() {
                     ? "▲ Show less"
                     : `▼ Show ${results.main.length - INITIAL_SHOW} more option${results.main.length - INITIAL_SHOW !== 1 ? "s" : ""}`}
                 </button>
-              )}
-
-              {/* Just late — arrives target+1 to target+5 — slightly dim */}
-              {results.justLate.length > 0 && (
-                <div className="mt-2">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="flex-1 border-t border-slate-100" />
-                    <span className="text-xs text-slate-400 font-medium flex-shrink-0">
-                      Up to 5 min late
-                    </span>
-                    <div className="flex-1 border-t border-slate-100" />
-                  </div>
-                  <div className="space-y-3">
-                    {results.justLate.map((t) => (
-                      <TripRow key={t.id} trip={t} dim={false} />
-                    ))}
-                  </div>
-                </div>
               )}
 
               {/* Nearly late — arrives target+6 to target+15 — greyed */}

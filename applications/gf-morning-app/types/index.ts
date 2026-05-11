@@ -1,6 +1,19 @@
 // =============================================================================
 // Weather
 // =============================================================================
+export interface DayForecast {
+  date: string;          // YYYY-MM-DD
+  label: string;         // "Today", "Tomorrow", "Wednesday" …
+  dayShort: string;      // "Today", "Tmrw", "Wed" …
+  temperature: number;
+  feelsLike: number;
+  condition: string;
+  morningTemp: number;
+  eveningTemp: number;
+  morningRainChance: number;
+  eveningRainChance: number;
+}
+
 export interface WeatherData {
   temperature: number;    // current / daytime
   feelsLike: number;
