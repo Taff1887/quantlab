@@ -10,31 +10,31 @@ export interface WeatherData {
   lastUpdated: string;
 }
 
-export type ClothingRec = "warmer" | "light-layer" | "cooler";
+export type ClothingRec = "very-cold" | "cold" | "mild" | "warm" | "hot";
 export type UmbrellaRec = "bring" | "not-needed";
 
 // =============================================================================
 // Transport
 // =============================================================================
 export type TransportMode = "ferry" | "bus";
+export type PrimaryMode = "all" | "bus" | "ferry";
 export type WharfName =
   | "Taronga Zoo"
   | "South Mosman"
   | "Mosman Bay"
   | "Cremorne Point";
 
-export type TransportFilter =
-  | "all"
-  | "ferry"
-  | "bus"
-  | WharfName;
-
 export interface TransportOption {
   id: string;
   mode: TransportMode;
   wharf?: WharfName;
   stopName: string;
+  // Walking to stop
   walkMins: number;
+  walkDistanceM: number;
+  // Driving to stop
+  driveMins: number;
+  driveDistanceM: number;
   departureTime: string;
   arrivalTime: string;
   totalMins: number;

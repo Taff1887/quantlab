@@ -17,7 +17,7 @@ export default function Header() {
     now.toLocaleTimeString("en-AU", { hour: "2-digit", hour12: false, timeZone: tz })
   );
   const greeting =
-    hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+    hour < 12 ? "Good morning, pookie" : hour < 17 ? "Good afternoon, pookie" : "Good evening, pookie";
   const emoji = hour < 12 ? "🌅" : hour < 17 ? "☀️" : "🌙";
 
   const time = now.toLocaleTimeString("en-AU", {

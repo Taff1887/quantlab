@@ -1,5 +1,6 @@
 "use client";
 import Header from "@/components/Header";
+import QuoteCard from "@/components/QuoteCard";
 import WeatherCard from "@/components/WeatherCard";
 import TransportCard from "@/components/TransportCard";
 import FerrySchedule from "@/components/FerrySchedule";
@@ -11,7 +12,10 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen">
       <Header />
-      <main className="max-w-lg mx-auto px-4 pb-20 space-y-4">
+      <div className="max-w-lg mx-auto pb-2">
+        <QuoteCard />
+      </div>
+      <main className="max-w-lg mx-auto px-4 pb-20 space-y-4 mt-4">
         <WeatherCard />
         <TransportCard />
         <FerrySchedule />
