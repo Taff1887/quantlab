@@ -57,8 +57,10 @@ export interface FerryDeparture {
 // =============================================================================
 export type WorkoutType =
   | "Pilates"
-  | "Weights"
-  | "Cardio"
+  | "Legs"
+  | "Upper Body"
+  | "Run"
+  | "Stairmaster"
   | "Walk"
   | "Class"
   | "Other";
@@ -92,3 +94,13 @@ export interface Chore {
 }
 
 export type ChoreStatus = "ok" | "due-soon" | "due-today" | "overdue";
+
+// =============================================================================
+// Date Nights
+// =============================================================================
+export interface DateNight {
+  id: string;
+  date: string; // YYYY-MM-DD
+  note: string;
+  createdAt: string;
+}

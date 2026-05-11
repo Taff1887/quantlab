@@ -6,16 +6,18 @@ import { getItem, setItem } from "@/lib/storage";
 const STORAGE_KEY = "mcc_gym_sessions";
 
 const WORKOUT_TYPES: WorkoutType[] = [
-  "Pilates", "Weights", "Cardio", "Walk", "Class", "Other",
+  "Pilates", "Legs", "Upper Body", "Run", "Stairmaster", "Walk", "Class", "Other",
 ];
 
 const WORKOUT_EMOJI: Record<WorkoutType, string> = {
   Pilates: "🧘‍♀️",
-  Weights: "🏋️‍♀️",
-  Cardio: "🏃‍♀️",
+  Legs: "🦵",
+  "Upper Body": "💪",
+  Run: "🏃‍♀️",
+  Stairmaster: "🪜",
   Walk: "🚶‍♀️",
   Class: "🎯",
-  Other: "💪",
+  Other: "⭐",
 };
 
 function todayStr() {
@@ -58,7 +60,7 @@ export default function GymTracker() {
       },
       ...sessions,
     ]);
-    setForm({ date: todayStr(), type: "Pilates", notes: "" });
+    setForm({ date: todayStr(), type: "Pilates" as WorkoutType, notes: "" });
     setShowForm(false);
   }
 
