@@ -1,15 +1,24 @@
 "use client";
+
 import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabase";
 import type { Chore, ChoreStatus } from "../types";
-import { getItem, setItem } from "../lib/storage";
 
-const STORAGE_KEY = "mcc_chores";
-
-const DEFAULT_CHORES: Chore[] = [
-  { id: "sheets", name: "🛏️ Bed sheets", intervalDays: 14, lastCompleted: null },
-  { id: "clothes", name: "👕 General clothes", intervalDays: 14, lastCompleted: null },
-  { id: "towels", name: "🏊 Towels", intervalDays: 7, lastCompleted: null },
+const DEFAULT_CHORES = [
+  { id: "sheets", name: "🛏️ Bed sheets", interval_days: 14 },
+  { id: "clothes", name: "👕 General clothes", interval_days: 14 },
+  { id: "towels", name: "🏊 Towels", interval_days: 7 },
 ];
+
+// Map DB row → Chore
+function rowToChore(row: Record<string, unknown>): Chore {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    intervalDays: row.interval_days as number,
+    lastCompleted: (row.last_completed as string | null) ?? null,
+  };
+}
 
 function choreStatus(chore: Chore): {
   status: ChoreStatus;
@@ -55,52 +64,88 @@ const STATUS_BADGE: Record<ChoreStatus, string> = {
 };
 
 export default function ChoreCountdown() {
-  const [chores, setChores] = useState<Chore[]>(DEFAULT_CHORES);
+  const [chores, setChores] = useState<Chore[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Add form
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState("");
   const [newInterval, setNewInterval] = useState(7);
-  const [hydrated, setHydrated] = useState(false);
+
+  // Edit form (inline per-chore)
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editInterval, setEditInterval] = useState(7);
+
+  async function fetchChores() {
+    const { data } = await supabase.from("chores").select("*");
+    const rows = (data ?? []) as Record<string, unknown>[];
+
+    if (rows.length === 0) {
+      // Insert defaults
+      await supabase.from("chores").insert(
+        DEFAULT_CHORES.map((c) => ({ ...c, last_completed: null }))
+      );
+      const { data: fresh } = await supabase.from("chores").select("*");
+      setChores(((fresh ?? []) as Record<string, unknown>[]).map(rowToChore));
+    } else {
+      setChores(rows.map(rowToChore));
+    }
+    setLoading(false);
+  }
 
   useEffect(() => {
-    const saved = getItem<Chore[] | null>(STORAGE_KEY, null);
-    if (saved) setChores(saved);
-    setHydrated(true);
+    fetchChores();
   }, []);
 
-  function save(updated: Chore[]) {
-    setChores(updated);
-    setItem(STORAGE_KEY, updated);
+  async function markDone(id: string) {
+    const now = new Date().toISOString();
+    await supabase
+      .from("chores")
+      .update({ last_completed: now })
+      .eq("id", id);
+    fetchChores();
   }
 
-  function markDone(id: string) {
-    save(
-      chores.map((c) =>
-        c.id === id ? { ...c, lastCompleted: new Date().toISOString() } : c
-      )
-    );
+  async function removeChore(id: string) {
+    await supabase.from("chores").delete().eq("id", id);
+    fetchChores();
   }
 
-  function removeChore(id: string) {
-    save(chores.filter((c) => c.id !== id));
-  }
-
-  function handleAdd() {
+  async function handleAdd() {
     if (!newName.trim()) return;
-    save([
-      ...chores,
-      {
-        id: Date.now().toString(),
-        name: newName.trim(),
-        intervalDays: newInterval,
-        lastCompleted: null,
-      },
-    ]);
+    const id = crypto.randomUUID();
+    await supabase.from("chores").insert({
+      id,
+      name: newName.trim(),
+      interval_days: newInterval,
+      last_completed: null,
+    });
     setNewName("");
     setNewInterval(7);
     setShowAdd(false);
+    fetchChores();
   }
 
-  if (!hydrated) return <div className="card animate-pulse h-48" />;
+  function openEdit(chore: Chore) {
+    setEditId(chore.id);
+    setEditName(chore.name);
+    setEditInterval(chore.intervalDays);
+  }
+
+  async function saveEdit(id: string) {
+    if (!editName.trim()) return;
+    await supabase
+      .from("chores")
+      .update({ name: editName.trim(), interval_days: editInterval })
+      .eq("id", id);
+    setEditId(null);
+    fetchChores();
+  }
+
+  if (loading) {
+    return <div className="card animate-pulse h-48" />;
+  }
 
   return (
     <div className="card">
@@ -117,75 +162,123 @@ export default function ChoreCountdown() {
       <div className="space-y-3">
         {chores.map((chore) => {
           const { status, daysLeft, nextDue } = choreStatus(chore);
+          const isEditing = editId === chore.id;
+
           return (
             <div
               key={chore.id}
               className={`rounded-2xl p-4 border ${STATUS_CARD[status]}`}
             >
-              <div className="flex items-start gap-3">
-                <div className="flex-1 min-w-0">
-                  {/* Name + badge */}
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <p className="text-sm font-semibold text-slate-800">
-                      {chore.name}
-                    </p>
-                    <span
-                      className={`text-xs font-bold ${STATUS_TEXT[status]}`}
+              {isEditing ? (
+                /* Inline edit form */
+                <div className="space-y-2">
+                  <input
+                    className="input text-sm"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="Chore name"
+                    autoFocus
+                  />
+                  <div className="flex items-center gap-2">
+                    <label className="label whitespace-nowrap text-xs">Every</label>
+                    <input
+                      type="number"
+                      min={1}
+                      className="input w-20 text-center text-sm"
+                      value={editInterval}
+                      onChange={(e) =>
+                        setEditInterval(Math.max(1, Number(e.target.value)))
+                      }
+                    />
+                    <span className="text-xs text-slate-500">days</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => saveEdit(chore.id)}
+                      className="btn-primary text-xs py-1 px-3"
                     >
-                      {STATUS_BADGE[status]}
-                    </span>
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setEditId(null)}
+                      className="text-xs text-slate-400 hover:text-slate-600"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    {/* Name + badge */}
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <p className="text-sm font-semibold text-slate-800">
+                        {chore.name}
+                      </p>
+                      <span className={`text-xs font-bold ${STATUS_TEXT[status]}`}>
+                        {STATUS_BADGE[status]}
+                      </span>
+                    </div>
+
+                    {/* Detail rows */}
+                    {chore.lastCompleted ? (
+                      <>
+                        <p className="text-xs text-slate-500">
+                          Last done:{" "}
+                          {new Date(chore.lastCompleted).toLocaleDateString("en-AU", {
+                            day: "numeric",
+                            month: "short",
+                          })}
+                          {nextDue && (
+                            <>
+                              {" · "}Next:{" "}
+                              {nextDue.toLocaleDateString("en-AU", {
+                                day: "numeric",
+                                month: "short",
+                              })}
+                            </>
+                          )}
+                        </p>
+                        <p
+                          className={`text-xs font-semibold mt-1 ${STATUS_TEXT[status]}`}
+                        >
+                          {status === "overdue"
+                            ? `${Math.abs(daysLeft)} day${Math.abs(daysLeft) !== 1 ? "s" : ""} overdue`
+                            : status === "due-today"
+                            ? "Do it today!"
+                            : `${daysLeft} day${daysLeft !== 1 ? "s" : ""} remaining`}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-xs text-red-400">
+                        Never done — mark complete to start tracking
+                      </p>
+                    )}
                   </div>
 
-                  {/* Detail rows */}
-                  {chore.lastCompleted ? (
-                    <>
-                      <p className="text-xs text-slate-500">
-                        Last done:{" "}
-                        {new Date(chore.lastCompleted).toLocaleDateString("en-AU", {
-                          day: "numeric",
-                          month: "short",
-                        })}
-                        {nextDue && (
-                          <>
-                            {" "}· Next:{" "}
-                            {nextDue.toLocaleDateString("en-AU", {
-                              day: "numeric",
-                              month: "short",
-                            })}
-                          </>
-                        )}
-                      </p>
-                      <p className={`text-xs font-semibold mt-1 ${STATUS_TEXT[status]}`}>
-                        {status === "overdue"
-                          ? `${Math.abs(daysLeft)} day${Math.abs(daysLeft) !== 1 ? "s" : ""} overdue`
-                          : status === "due-today"
-                          ? "Do it today!"
-                          : `${daysLeft} day${daysLeft !== 1 ? "s" : ""} remaining`}
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-xs text-red-400">
-                      Never done — mark complete to start tracking
-                    </p>
-                  )}
+                  {/* Actions */}
+                  <div className="flex flex-col gap-1.5 flex-shrink-0 items-end">
+                    <button
+                      onClick={() => markDone(chore.id)}
+                      className="px-3 py-1.5 bg-white rounded-xl text-xs font-semibold text-slate-700 shadow-sm border border-white hover:bg-slate-50 transition-colors"
+                    >
+                      Done ✓
+                    </button>
+                    <button
+                      onClick={() => openEdit(chore)}
+                      className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => removeChore(chore.id)}
+                      className="text-xs text-slate-300 hover:text-red-400 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
-
-                {/* Actions */}
-                <div className="flex flex-col gap-1.5 flex-shrink-0">
-                  <button
-                    onClick={() => markDone(chore.id)}
-                    className="px-3 py-1.5 bg-white rounded-xl text-xs font-semibold text-slate-700 shadow-sm border border-white hover:bg-slate-50 transition-colors"
-                  >
-                    Done ✓
-                  </button>
-                  <button
-                    onClick={() => removeChore(chore.id)}
-                    className="text-xs text-slate-300 hover:text-red-400 transition-colors text-center"
-                  >
-                    remove
-                  </button>
-                </div>
-              </div>
+              )}
             </div>
           );
         })}
@@ -203,6 +296,7 @@ export default function ChoreCountdown() {
               placeholder="e.g. 🪟 Clean windows"
               className="input"
               onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+              autoFocus
             />
           </div>
           <div className="flex items-center gap-3">
@@ -211,7 +305,9 @@ export default function ChoreCountdown() {
               type="number"
               value={newInterval}
               min={1}
-              onChange={(e) => setNewInterval(Math.max(1, Number(e.target.value)))}
+              onChange={(e) =>
+                setNewInterval(Math.max(1, Number(e.target.value)))
+              }
               className="input w-20 text-center"
             />
             <span className="text-xs text-slate-500">days</span>
