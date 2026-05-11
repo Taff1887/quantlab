@@ -37,6 +37,10 @@
     @apply block text-xs font-semibold text-slate-400 mb-1.5;
   }
 
+  .pin-shake {
+    animation: wiggle 0.5s ease-in-out;
+  }
+
   /* Hide scrollbar but keep scroll */
   .no-scrollbar {
     -ms-overflow-style: none;
@@ -45,4 +49,12 @@
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+}
+
+@keyframes wiggle {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-6px); }
+  80% { transform: translateX(6px); }
 }

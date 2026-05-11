@@ -57,12 +57,7 @@ export default function PinGate({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* PIN dots */}
-        <div
-          className={`flex justify-center gap-4 mb-8 transition-transform ${
-            shake ? "animate-[wiggle_0.5s_ease-in-out]" : ""
-          }`}
-          style={shake ? { animation: "wiggle 0.5s ease-in-out" } : {}}
-        >
+        <div className={`flex justify-center gap-4 mb-8 ${shake ? "pin-shake" : ""}`}>
           {Array.from({ length: CORRECT_PIN.length }).map((_, i) => (
             <div
               key={i}
@@ -97,15 +92,6 @@ export default function PinGate({ children }: { children: React.ReactNode }) {
           ))}
         </div>
 
-        <style>{`
-          @keyframes wiggle {
-            0%, 100% { transform: translateX(0); }
-            20% { transform: translateX(-8px); }
-            40% { transform: translateX(8px); }
-            60% { transform: translateX(-6px); }
-            80% { transform: translateX(6px); }
-          }
-        `}</style>
       </div>
     </div>
   );
