@@ -64,14 +64,14 @@ const FERRY_WHARVES = [
 ];
 
 // ── Bus stops — Bradleys Head Rd only ─────────────────────────────────────────
-// B100: Bradleys Head Rd at Whiting Beach Rd, Mosman (Stop 208858)
+// Route 100 (locals call it B100): Bradleys Head Rd at Whiting Beach Rd (TfNSW stop 10114948)
 
 const BUS_STOPS = [
   {
-    stopId:          "208858",   // TfNSW stop ID — skip Stop Finder entirely
+    stopId:          "10114948", // TfNSW stop ID for "Bradleys Head Rd at Whiting Beach Rd"
     stopKey:         "bus-b100-whiting",
     stopName:        "Bradleys Head Rd at Whiting Beach Rd",
-    routeFilter:     [],         // no filter — accept all inbound; log will reveal exact route number
+    routeFilter:     ["100"],    // TfNSW calls it "100", locals call it B100
     walkMins:        10,
     walkDistanceM:   700,
     driveMins:       3,
