@@ -162,9 +162,9 @@ export default function CommutePlanner() {
 
     const byMins = toMins(arrivalTime);
 
-    // Main: arrives ≤ target AND ≥ target - 45min
+    // Main: arrives ≤ target AND ≥ target - 60min
     const onTime = tripsArrivingBy(filtered, arrivalTime).filter(
-      (t) => toMins(t.officeArrival) >= byMins - 45
+      (t) => toMins(t.officeArrival) >= byMins - 60
     );
 
     // Just late: arrives target+1 → target+5 (shown in black)
@@ -318,7 +318,7 @@ export default function CommutePlanner() {
         <div className="space-y-3">
           {results.main.length === 0 && results.justLate.length === 0 ? (
             <p className="text-center text-slate-400 text-sm py-6">
-              No options arrive within 45 min of {arrivalTime}. Try a later time.
+              No options arrive within 60 min of {arrivalTime}. Try a later time.
             </p>
           ) : (
             <>

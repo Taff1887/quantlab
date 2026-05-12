@@ -183,7 +183,7 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
   console.log(`${wharf.wharfKey}: ${inbound.length}/${events.length} kept after ferry+direction filter`);
 
   const trips = [];
-  for (const ev of inbound.slice(0, 6)) {
+  for (const ev of inbound.slice(0, 20)) {
     const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned;
     if (!depIso) continue;
 
