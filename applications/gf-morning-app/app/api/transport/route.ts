@@ -64,22 +64,23 @@ const FERRY_WHARVES = [
 ];
 
 // ── Bus stops ─────────────────────────────────────────────────────────────────
-// Route 100: query Taronga Zoo bus terminus (start of route).
-// Whiting Beach Rd stop is ~2 min after Taronga Zoo, so we offset departureTime by +2.
+// Route 100: Bradleys Head Rd at Whiting Beach Rd (stop code 208858).
+// Uses type_dm=any in Departure Monitor to accept raw TfNSW stop codes directly.
 
 const BUS_STOPS = [
   {
-    searchName:        "Taronga Zoo Bradleys Head Rd",
-    stopKey:           "bus-100-taronga",
-    stopName:          "Bradleys Head Rd at Whiting Beach Rd",  // displayed stop name
-    departureOffsetMins: 2,   // Taronga Zoo → Whiting Beach Rd
+    stopCode:          "208858",   // raw TfNSW stop code — used with type_dm=any
+    stopKey:           "bus-100-whiting",
+    stopName:          "Bradleys Head Rd at Whiting Beach Rd",
+    departureOffsetMins: 0,
     routeFilter:       ["100"],
     walkMins:          10,
     walkDistanceM:     700,
     driveMins:         3,
     driveDistanceM:    450,
-    transitMins:       34,   // Bradleys Head Rd → City QVB
+    transitMins:       40,   // Bradleys Head Rd → City QVB (~40 min)
     destinationStop:   "City QVB",
+    walkToOfficeMins:  11,   // City QVB → 1 Farrer Place
   },
 ];
 
@@ -206,11 +207,11 @@ async function resolveStopId(
 
 // ── Departure Monitor helper ──────────────────────────────────────────────────
 
-async function getDepartures(stopId: string, apiKey: string) {
+async function getDepartures(stopId: string, apiKey: string, typeMode: "stop" | "any" = "stop") {
   const url = new URL(DEP_MON);
   url.searchParams.set("outputFormat",          "rapidJSON");
   url.searchParams.set("coordOutputFormat",     "EPSG:4326");
-  url.searchParams.set("type_dm",               "stop");
+  url.searchParams.set("type_dm",               typeMode);
   url.searchParams.set("name_dm",               stopId);
   url.searchParams.set("mode",                  "direct");
   url.searchParams.set("departureMonitorMacro", "true");
@@ -286,11 +287,10 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
 // ── Fetch bus stop ────────────────────────────────────────────────────────────
 
 async function fetchBusStop(stop: typeof BUS_STOPS[0], apiKey: string) {
-  const stopId = await resolveStopId(stop.searchName, apiKey, true);
-  if (!stopId) throw new Error(`No stop found for "${stop.searchName}"`);
-  console.log(`BUS ${stop.stopKey}: resolved "${stop.searchName}" → stopId=${stopId}`);
+  const stopId = stop.stopCode;
+  console.log(`BUS ${stop.stopKey}: querying stop code ${stopId} via type_dm=any`);
 
-  const events = await getDepartures(stopId, apiKey);
+  const events = await getDepartures(stopId, apiKey, "any");
   const now = nowMinsSydney();
 
   const sample = events.slice(0, 4).map((e) =>
@@ -326,9 +326,10 @@ async function fetchBusStop(stop: typeof BUS_STOPS[0], apiKey: string) {
     // Offset from terminus to displayed stop (e.g. Taronga Zoo → Whiting Beach Rd = +2 min)
     const terminusDep        = isoToHHMM(depIso);
     const departureTime      = addMins(terminusDep, stop.departureOffsetMins ?? 0);
+    const walkToOffice       = stop.walkToOfficeMins ?? BUS_OFFICE_WALK_MINS;
     const destinationArrival = addMins(departureTime, stop.transitMins);
-    const officeArrival      = addMins(destinationArrival, BUS_OFFICE_WALK_MINS);
-    const totalMins          = stop.walkMins + stop.transitMins + BUS_OFFICE_WALK_MINS;
+    const officeArrival      = addMins(destinationArrival, walkToOffice);
+    const totalMins          = stop.walkMins + stop.transitMins + walkToOffice;
     const routeNum           = (ev.transportation?.number ?? "").trim();
     const routeName          = routeNum ? `Route ${routeNum} to ${stop.destinationStop}` : `Bus to ${stop.destinationStop}`;
 
