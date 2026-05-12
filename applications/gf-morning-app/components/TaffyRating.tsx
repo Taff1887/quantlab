@@ -142,7 +142,7 @@ export default function TaffyRating() {
     setLoading(true);
     if (!SUPABASE_ENABLED) {
       setUseLocal(true);
-      setRatings(lsLoad());
+      setRows(lsSeedIfEmpty(lsLoad()));
       setLoading(false);
       return;
     }
