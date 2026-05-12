@@ -89,12 +89,15 @@ export default function TransportCard() {
   const filtered = options.filter((o) => {
     // Drop departures that have already left (allow 1 min grace)
     if (timeToMins(o.departureTime) < nowMins - 1) return false;
-    if (mode === "ferry") {
-      if (o.mode !== "ferry") return false;
+
+    if (o.mode === "ferry") {
+      if (mode === "bus") return false; // bus-only view
+      // Always apply wharf filter
       return selectedWharves.length === 0 || selectedWharves.includes(o.wharf as WharfName);
     }
-    if (mode === "bus") {
-      if (o.mode !== "bus") return false;
+    if (o.mode === "bus") {
+      if (mode === "ferry") return false; // ferry-only view
+      // Always apply bus route filter
       return selectedBuses.length === 0 || selectedBuses.includes(o.id);
     }
     return true;

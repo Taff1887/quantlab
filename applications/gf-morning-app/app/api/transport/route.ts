@@ -1,260 +1,190 @@
-// Real-time departures from TfNSW Open Data API
-// Sign up free at https://opendata.transport.nsw.gov.au/
-// Add API key to Vercel: TFNSW_API_KEY=your_key_here
+// TfNSW Trip Planner API — origin/destination as coordinates, no stop IDs needed.
+// This avoids the stop-ID guessing problem entirely and gives real journey options.
 
 export const revalidate = 30;
 
-const TFNSW_BASE = "https://api.transport.nsw.gov.au/v1/tp/departure_mon";
-
-const FERRY_WHARVES = [
-  {
-    id: "taronga",
-    wharf: "Taronga Zoo",
-    stopId: "2000259",
-    walkMins: 10,
-    walkDistanceM: 700,
-    driveMins: 4,
-    driveDistanceM: 500,
-    crossingMins: 12,
-    destinationStop: "Circular Quay",
-    officeWalkMins: 3,
-  },
-  {
-    id: "south-mosman",
-    wharf: "South Mosman",
-    stopId: "2000255",
-    walkMins: 18,
-    walkDistanceM: 1200,
-    driveMins: 6,
-    driveDistanceM: 900,
-    crossingMins: 25,
-    destinationStop: "Circular Quay",
-    officeWalkMins: 3,
-  },
-  {
-    id: "mosman-bay",
-    wharf: "Mosman Bay",
-    stopId: "2000254",
-    walkMins: 22,
-    walkDistanceM: 1550,
-    driveMins: 7,
-    driveDistanceM: 1100,
-    crossingMins: 22,
-    destinationStop: "Circular Quay",
-    officeWalkMins: 3,
-  },
-  {
-    id: "cremorne",
-    wharf: "Cremorne Point",
-    stopId: "2000252",
-    walkMins: 25,
-    walkDistanceM: 1700,
-    driveMins: 8,
-    driveDistanceM: 1400,
-    crossingMins: 18,
-    destinationStop: "Circular Quay",
-    officeWalkMins: 3,
-  },
-];
-
-// Bus stops near 1 Rickard Ave, Mosman
-// Route 144: Military Rd near Spofforth St (~380m walk)
-// Route 178: Spit Rd near Mosman (~480m walk)
-const BUS_STOPS = [
-  {
-    id: "bus-144",
-    stopId: "209237",
-    routeFilter: "144",
-    stopName: "Military Rd (Route 144)",
-    walkMins: 6,
-    walkDistanceM: 380,
-    driveMins: 3,
-    driveDistanceM: 280,
-    journeyMins: 30,  // Military Rd → Wynyard
-    destinationStop: "Wynyard",
-    officeWalkMins: 5, // Wynyard → 1 Farrer Place
-  },
-  {
-    id: "bus-178",
-    stopId: "209281",
-    routeFilter: "178",
-    stopName: "Spit Rd (Route 178)",
-    walkMins: 7,
-    walkDistanceM: 480,
-    driveMins: 3,
-    driveDistanceM: 350,
-    journeyMins: 32,  // Spit Rd → City
-    destinationStop: "Wynyard",
-    officeWalkMins: 5,
-  },
-];
-
-function pad(n: number) {
-  return String(n).padStart(2, "0");
-}
-
-// TfNSW returns UTC timestamps — convert to Sydney local time explicitly
+const TRIP_URL = "https://api.transport.nsw.gov.au/v1/tp/trip";
 const SYD_TZ = "Australia/Sydney";
 
-function isoToHHMM(isoStr: string): string {
-  return new Date(isoStr).toLocaleTimeString("en-AU", {
-    timeZone: SYD_TZ,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
+// Home: 1 Rickard Ave, Mosman  (TfNSW coord format = lon:lat:EPSG:4326)
+const HOME_COORD = "151.2273:-33.8274:EPSG:4326";
+// Office: 1 Farrer Place, Sydney CBD
+const OFFICE_COORD = "151.2095:-33.8660:EPSG:4326";
+
+const OFFICE_WALK_MINS = 3; // Circular Quay → 1 Farrer Place
+
+// Hardcoded walk/drive times from home to each wharf / bus stop
+const FERRY_INFO: Record<string, { walkMins: number; walkDistanceM: number; driveMins: number; driveDistanceM: number }> = {
+  "Taronga Zoo":    { walkMins: 10, walkDistanceM: 700,  driveMins: 4, driveDistanceM: 500  },
+  "South Mosman":   { walkMins: 18, walkDistanceM: 1200, driveMins: 6, driveDistanceM: 900  },
+  "Mosman Bay":     { walkMins: 22, walkDistanceM: 1550, driveMins: 7, driveDistanceM: 1100 },
+  "Cremorne Point": { walkMins: 25, walkDistanceM: 1700, driveMins: 8, driveDistanceM: 1400 },
+};
+
+const BUS_INFO: Record<string, { stopName: string; walkMins: number; walkDistanceM: number; driveMins: number; driveDistanceM: number; destStop: string }> = {
+  "144": { stopName: "Military Rd (Route 144)", walkMins: 6, walkDistanceM: 380, driveMins: 3, driveDistanceM: 280, destStop: "Wynyard" },
+  "178": { stopName: "Spit Rd (Route 178)",     walkMins: 7, walkDistanceM: 480, driveMins: 3, driveDistanceM: 350, destStop: "Wynyard" },
+};
+
+function pad(n: number) { return String(n).padStart(2, "0"); }
+
+function isoToHHMM(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-AU", {
+    timeZone: SYD_TZ, hour: "2-digit", minute: "2-digit", hour12: false,
   });
 }
 
-function addMinsToTime(timeStr: string, mins: number): string {
-  const [h, m] = timeStr.split(":").map(Number);
-  const total = h * 60 + m + mins;
-  return `${pad(Math.floor(total / 60) % 24)}:${pad(total % 60)}`;
+function addMins(hhmm: string, mins: number): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const t = h * 60 + m + mins;
+  return `${pad(Math.floor(t / 60) % 24)}:${pad(t % 60)}`;
 }
 
-function subtractMins(timeStr: string, mins: number): string {
-  const [h, m] = timeStr.split(":").map(Number);
-  let total = h * 60 + m - mins;
-  if (total < 0) total += 24 * 60;
-  return `${pad(Math.floor(total / 60) % 24)}:${pad(total % 60)}`;
+function subMins(hhmm: string, mins: number): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  let t = h * 60 + m - mins;
+  if (t < 0) t += 24 * 60;
+  return `${pad(Math.floor(t / 60) % 24)}:${pad(t % 60)}`;
 }
 
-function addMinsToIso(isoStr: string, mins: number): string {
-  const d = new Date(isoStr);
-  d.setMinutes(d.getMinutes() + mins);
-  return d.toLocaleTimeString("en-AU", {
-    timeZone: SYD_TZ,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+function matchWharf(name: string): string | null {
+  const n = name.toLowerCase();
+  if (n.includes("taronga"))       return "Taronga Zoo";
+  if (n.includes("south mosman"))  return "South Mosman";
+  if (n.includes("mosman bay"))    return "Mosman Bay";
+  if (n.includes("cremorne"))      return "Cremorne Point";
+  return null;
 }
 
-async function fetchDepartures(stopId: string, apiKey: string) {
-  const url = new URL(TFNSW_BASE);
-  url.searchParams.set("outputFormat", "rapidJSON");
-  url.searchParams.set("coordOutputFormat", "EPSG:4326");
-  url.searchParams.set("mode", "direct");
-  url.searchParams.set("type_dm", "stop");
-  url.searchParams.set("name_dm", stopId);
-  url.searchParams.set("departureMonitorMacro", "true");
-  url.searchParams.set("TfNSWDM", "true");
-  url.searchParams.set("version", "10.2.1.42");
-
-  const res = await fetch(url.toString(), {
-    headers: { Authorization: `apikey ${apiKey}` },
-    next: { revalidate: 60 },
-  });
-  if (!res.ok) throw new Error(`TfNSW ${res.status} for stop ${stopId}`);
-  const data = await res.json();
-  return data?.stopEvents ?? [];
+function matchBus(routeNum: string): string | null {
+  if (routeNum.includes("144")) return "144";
+  if (routeNum.includes("178")) return "178";
+  return null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseFerryEvents(events: any[], wharf: typeof FERRY_WHARVES[0]) {
-  const trips = [];
-  for (const ev of events.slice(0, 3)) {
-    const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned;
-    if (!depIso) continue;
-    const departureTime = isoToHHMM(depIso);
-    const destinationArrival = addMinsToIso(depIso, wharf.crossingMins);
-    const officeArrival = addMinsToIso(depIso, wharf.crossingMins + wharf.officeWalkMins);
-    const totalMins = wharf.walkMins + wharf.crossingMins + wharf.officeWalkMins;
-    trips.push({
-      id: `${wharf.id}-${departureTime}`,
-      mode: "ferry" as const,
-      wharf: wharf.wharf,
-      routeName: ev.transportation?.description ?? "Ferry to Circular Quay",
-      stopName: `${wharf.wharf} Ferry Wharf`,
-      walkMins: wharf.walkMins,
-      walkDistanceM: wharf.walkDistanceM,
-      driveMins: wharf.driveMins,
-      driveDistanceM: wharf.driveDistanceM,
-      departureTime,
-      destinationStop: wharf.destinationStop,
-      destinationArrival,
-      officeArrival,
-      totalMins,
-      leaveByWalking: subtractMins(departureTime, wharf.walkMins + 2),
-      leaveByDriving: subtractMins(departureTime, wharf.driveMins + 2),
-      isRealtime: !!ev.departureTimeEstimated,
-    });
-  }
-  return trips;
-}
+function parseJourneys(journeys: any[]): any[] {
+  const trips: any[] = [];
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseBusEvents(events: any[], bus: typeof BUS_STOPS[0]) {
-  const trips = [];
-  // Filter to the specific route number
-  const relevant = events.filter((ev) => {
-    const routeNum: string = ev.transportation?.number ?? ev.transportation?.disassembledName ?? "";
-    return routeNum.includes(bus.routeFilter);
-  });
-  for (const ev of relevant.slice(0, 3)) {
-    const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned;
-    if (!depIso) continue;
-    const departureTime = isoToHHMM(depIso);
-    const destinationArrival = addMinsToTime(departureTime, bus.journeyMins);
-    const officeArrival = addMinsToTime(departureTime, bus.journeyMins + bus.officeWalkMins);
-    const totalMins = bus.walkMins + bus.journeyMins + bus.officeWalkMins;
-    trips.push({
-      id: `${bus.id}-${departureTime}`,
-      mode: "bus" as const,
-      wharf: undefined,
-      routeName: `Route ${bus.routeFilter}`,
-      stopName: bus.stopName,
-      walkMins: bus.walkMins,
-      walkDistanceM: bus.walkDistanceM,
-      driveMins: bus.driveMins,
-      driveDistanceM: bus.driveDistanceM,
-      departureTime,
-      destinationStop: bus.destinationStop,
-      destinationArrival,
-      officeArrival,
-      totalMins,
-      leaveByWalking: subtractMins(departureTime, bus.walkMins + 2),
-      leaveByDriving: subtractMins(departureTime, bus.driveMins + 2),
-      isRealtime: !!ev.departureTimeEstimated,
+  for (const journey of journeys) {
+    const legs: any[] = journey.legs ?? [];
+
+    // Find all transit legs (not walking, class 99/100)
+    const transitLegs = legs.filter((leg) => {
+      const cls = leg.transportation?.product?.class;
+      return cls !== undefined && cls !== 99 && cls !== 100;
     });
+
+    // Only want single-leg journeys (no transfers)
+    if (transitLegs.length !== 1) continue;
+
+    const leg = transitLegs[0];
+    const productClass: number = leg.transportation?.product?.class ?? 0;
+    const routeNum: string = leg.transportation?.number ?? "";
+
+    const depIso: string | undefined = leg.origin?.departureTimeEstimated ?? leg.origin?.departureTimePlanned;
+    const arrIso: string | undefined = leg.destination?.arrivalTimeEstimated ?? leg.destination?.arrivalTimePlanned;
+    if (!depIso || !arrIso) continue;
+
+    const departureTime    = isoToHHMM(depIso);
+    const destinationArrival = isoToHHMM(arrIso);
+    const officeArrival    = addMins(destinationArrival, OFFICE_WALK_MINS);
+    const isRealtime       = !!(leg.origin?.departureTimeEstimated);
+    const crossingMins     = Math.round((new Date(arrIso).getTime() - new Date(depIso).getTime()) / 60_000);
+
+    // ── Ferry (product class 9, or route starts with F) ──────────────────
+    if (productClass === 9 || routeNum.startsWith("F")) {
+      const originName = leg.origin?.name ?? "";
+      const wharfKey = matchWharf(originName);
+      if (!wharfKey) continue;
+
+      const info = FERRY_INFO[wharfKey];
+      trips.push({
+        id: `${wharfKey.toLowerCase().replace(/\s+/g, "-")}-${departureTime}`,
+        mode: "ferry",
+        wharf: wharfKey,
+        routeName: `${routeNum} ${leg.transportation?.description ?? ""}`.trim() || "Ferry to Circular Quay",
+        stopName: `${wharfKey} Ferry Wharf`,
+        ...info,
+        departureTime,
+        destinationStop: "Circular Quay",
+        destinationArrival,
+        officeArrival,
+        totalMins: info.walkMins + crossingMins + OFFICE_WALK_MINS,
+        leaveByWalking: subMins(departureTime, info.walkMins + 2),
+        leaveByDriving: subMins(departureTime, info.driveMins + 2),
+        isRealtime,
+      });
+    }
+
+    // ── Bus (product class 5, route matches 144 or 178) ──────────────────
+    else if (productClass === 5) {
+      const busKey = matchBus(routeNum);
+      if (!busKey) continue;
+
+      const info = BUS_INFO[busKey];
+      trips.push({
+        id: `bus-${busKey}-${departureTime}`,
+        mode: "bus",
+        wharf: undefined,
+        routeName: `Route ${busKey}`,
+        stopName: info.stopName,
+        walkMins: info.walkMins,
+        walkDistanceM: info.walkDistanceM,
+        driveMins: info.driveMins,
+        driveDistanceM: info.driveDistanceM,
+        departureTime,
+        destinationStop: info.destStop,
+        destinationArrival,
+        officeArrival,
+        totalMins: info.walkMins + crossingMins + OFFICE_WALK_MINS,
+        leaveByWalking: subMins(departureTime, info.walkMins + 2),
+        leaveByDriving: subMins(departureTime, info.driveMins + 2),
+        isRealtime,
+      });
+    }
   }
+
   return trips;
 }
 
 export async function GET() {
   const apiKey = process.env.TFNSW_API_KEY;
-
-  if (!apiKey) {
-    return Response.json({ error: "NO_KEY", trips: [] }, { status: 200 });
-  }
+  if (!apiKey) return Response.json({ error: "NO_KEY", trips: [] }, { status: 200 });
 
   try {
-    const [ferryResults, busResults] = await Promise.all([
-      Promise.allSettled(
-        FERRY_WHARVES.map(async (wharf) => {
-          const events = await fetchDepartures(wharf.stopId, apiKey);
-          return parseFerryEvents(events, wharf);
-        })
-      ),
-      Promise.allSettled(
-        BUS_STOPS.map(async (bus) => {
-          const events = await fetchDepartures(bus.stopId, apiKey);
-          return parseBusEvents(events, bus);
-        })
-      ),
-    ]);
+    // Current Sydney date + time for the query
+    const sydStr = new Date().toLocaleString("sv-SE", { timeZone: SYD_TZ }); // "YYYY-MM-DD HH:MM:SS"
+    const [dateStr, timeStr] = sydStr.split(" ");
+    const itdDate = dateStr.replace(/-/g, "");      // YYYYMMDD
+    const itdTime = timeStr.slice(0, 5).replace(":", ""); // HHMM
 
-    const ferryTrips = ferryResults
-      .filter((r) => r.status === "fulfilled")
-      .flatMap((r) => (r as PromiseFulfilledResult<ReturnType<typeof parseFerryEvents>>).value);
+    const url = new URL(TRIP_URL);
+    url.searchParams.set("outputFormat",       "rapidJSON");
+    url.searchParams.set("coordOutputFormat",  "EPSG:4326");
+    url.searchParams.set("depArrMacro",        "dep");
+    url.searchParams.set("type_origin",        "coord");
+    url.searchParams.set("name_origin",        HOME_COORD);
+    url.searchParams.set("type_destination",   "coord");
+    url.searchParams.set("name_destination",   OFFICE_COORD);
+    url.searchParams.set("itdDate",            itdDate);
+    url.searchParams.set("itdTime",            itdTime);
+    url.searchParams.set("calcNumberOfTrips",  "12");
+    url.searchParams.set("TfNSWTR",            "true");
+    url.searchParams.set("version",            "10.2.1.42");
 
-    const busTrips = busResults
-      .filter((r) => r.status === "fulfilled")
-      .flatMap((r) => (r as PromiseFulfilledResult<ReturnType<typeof parseBusEvents>>).value);
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `apikey ${apiKey}` },
+      next: { revalidate: 30 },
+    });
 
-    const trips = [...ferryTrips, ...busTrips];
+    if (!res.ok) throw new Error(`TfNSW ${res.status}`);
+    const data = await res.json();
+
+    const trips = parseJourneys(data?.journeys ?? []);
     return Response.json({ trips, isRealtime: true });
   } catch (err) {
-    console.error("TfNSW API error:", err);
+    console.error("TfNSW Trip API error:", err);
     return Response.json({ error: "API_ERROR", trips: [] }, { status: 200 });
   }
 }
