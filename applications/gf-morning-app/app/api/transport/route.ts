@@ -64,14 +64,14 @@ const FERRY_WHARVES = [
 ];
 
 // ── Bus stops — Bradleys Head Rd only ─────────────────────────────────────────
-// Route 238: Taronga Zoo / Bradleys Head Rd → Wynyard Station
+// B100: Bradleys Head Rd → Wynyard Station
 
 const BUS_STOPS = [
   {
     searchName:      "Bradleys Head Rd near Thompson St",
-    stopKey:         "bus-238-thompson",
+    stopKey:         "bus-b100-thompson",
     stopName:        "Bradleys Head Rd (Thompson St)",
-    routeFilter:     ["238"],
+    routeFilter:     ["B100"],
     walkMins:        10,
     walkDistanceM:   700,
     driveMins:       3,

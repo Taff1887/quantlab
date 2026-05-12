@@ -137,7 +137,7 @@ function buildScheduleOptions(bh: number, bm: number): TransportOption[] {
       notes: "Longer walk, faster harbour crossing",
     },
     {
-      id: "bus-238",
+      id: "bus-b100",
       mode: "bus",
       stopName: "Bradleys Head Rd (Thompson St)",
       walkMins: 10,
@@ -147,7 +147,7 @@ function buildScheduleOptions(bh: number, bm: number): TransportOption[] {
       departureTime: toTime(...addMins(bh, bm, 10)),
       arrivalTime: toTime(...addMins(bh, bm, 54)),
       totalMins: 54,
-      notes: "Route 238 to Wynyard",
+      notes: "B100 to Wynyard",
       isBest: false,
     },
   ];

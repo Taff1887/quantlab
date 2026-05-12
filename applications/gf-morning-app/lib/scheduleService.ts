@@ -142,9 +142,9 @@ const ROUTES: RouteConfig[] = [
     firstDep: "06:00", lastDep: "22:00",
   },
   {
-    id: "bus-238",
+    id: "bus-b100",
     mode: "bus",
-    routeName: "Route 238",
+    routeName: "B100",
     stopName: "Bradleys Head Rd (Thompson St)",
     walkMins: buffer(10), walkDistanceM: 700,
     driveMins: buffer(3), driveDistanceM: 450,

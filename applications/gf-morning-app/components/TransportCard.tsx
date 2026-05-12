@@ -14,7 +14,7 @@ const FERRY_WHARVES: { label: string; value: WharfName }[] = [
 ];
 
 const BUS_ROUTES: { label: string; value: string }[] = [
-  { label: "Route 238 · Bradleys Head Rd", value: "bus-238" },
+  { label: "B100 · Bradleys Head Rd", value: "bus-b100" },
 ];
 
 function timeToMins(t: string) {
@@ -51,7 +51,7 @@ export default function TransportCard() {
   const [selectedWharves, setSelectedWharves] = useState<WharfName[]>([
     "Taronga Zoo", "South Mosman", "Mosman Bay", "Cremorne Point", "Old Cremorne",
   ]);
-  const [selectedBuses, setSelectedBuses] = useState<string[]>(["bus-238"]);
+  const [selectedBuses, setSelectedBuses] = useState<string[]>(["bus-b100"]);
   const [sort, setSort] = useState<SortKey>("departure");
   const [expanded, setExpanded] = useState(false);
 
