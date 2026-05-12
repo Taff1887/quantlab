@@ -213,7 +213,11 @@ export default function CommutePlanner() {
           </span>
         </div>
         <p className="text-xs text-slate-400 mt-0.5">
-          Mosman → Circular Quay → 1 Farrer Place
+          {mode === "bus"
+            ? "Bradleys Head Rd → Wynyard → 1 Farrer Place"
+            : mode === "ferry"
+            ? "Mosman → Circular Quay → 1 Farrer Place"
+            : "Mosman → 1 Farrer Place"}
         </p>
       </div>
 

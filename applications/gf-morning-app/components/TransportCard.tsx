@@ -103,7 +103,8 @@ export default function TransportCard() {
     if (o.mode === "bus") {
       if (mode === "ferry") return false; // ferry-only view
       // Always apply bus route filter
-      return selectedBuses.length === 0 || selectedBuses.includes(o.id);
+      // Match by prefix so "bus-b100" matches trip IDs like "bus-b100-08:09"
+      return selectedBuses.length === 0 || selectedBuses.some((s) => o.id.startsWith(s));
     }
     return true;
   });
@@ -136,7 +137,11 @@ export default function TransportCard() {
           </div>
         </div>
         <p className="text-xs text-slate-400 mt-0.5">
-          Mosman → Circular Quay ferry
+          {mode === "bus"
+            ? "Bradleys Head Rd → Wynyard → 1 Farrer Place"
+            : mode === "ferry"
+            ? "Mosman → Circular Quay → 1 Farrer Place"
+            : "Mosman → 1 Farrer Place"}
         </p>
       </div>
 

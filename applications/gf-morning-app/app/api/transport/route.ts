@@ -70,7 +70,7 @@ const FERRY_WHARVES = [
 const BUS_STOPS = [
   {
     stopCode:          "208858",   // TfNSW stop code, resolved via type_sf=stop
-    stopKey:           "bus-100-whiting",
+    stopKey:           "bus-b100",
     stopName:          "Bradleys Head Rd at Whiting Beach Rd",
     departureOffsetMins: 0,
     routeFilter:       ["100"],
@@ -125,13 +125,15 @@ function minsUntil(depHHMM: string, nowMins: number): number {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isInboundFerry(ev: any): boolean {
-  const desc = (ev.transportation?.description ?? "").toLowerCase();
-  if (desc.includes("to circular quay")) return true;
-  if (desc.includes("circular quay to ")) return false;
+  // Trust destination.name first — the description text can say "Circular Quay to Taronga Zoo"
+  // even for inbound services (CCTZ etc), so checking it first causes false negatives.
   const destName = (ev.transportation?.destination?.name ?? "").toLowerCase();
   if (destName.includes("circular quay") || destName.includes("quay")) return true;
   if (destName && !destName.includes("quay")) return false;
-  return true;
+  // No destination name — fall back to description
+  const desc = (ev.transportation?.description ?? "").toLowerCase();
+  if (desc.includes("to circular quay")) return true;
+  return false;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -238,12 +240,12 @@ async function resolveStopByCode(stopCode: string, apiKey: string): Promise<stri
 async function getDepartures(
   stopId: string,
   apiKey: string,
-  opts: { itdDate?: string; itdTime?: string } = {}
+  opts: { itdDate?: string; itdTime?: string; typeDm?: string } = {}
 ) {
   const url = new URL(DEP_MON);
   url.searchParams.set("outputFormat",          "rapidJSON");
   url.searchParams.set("coordOutputFormat",     "EPSG:4326");
-  url.searchParams.set("type_dm",               "stop");
+  url.searchParams.set("type_dm",               opts.typeDm ?? "stop");
   url.searchParams.set("name_dm",               stopId);
   url.searchParams.set("mode",                  "direct");
   url.searchParams.set("departureMonitorMacro", "true");
@@ -329,17 +331,17 @@ async function fetchBusStop(
   apiKey: string,
   dtOpts: { itdDate?: string; itdTime?: string; fromMins?: number } = {}
 ) {
-  const stopId = await resolveStopId(stop.stopName, apiKey, true);
-  if (!stopId) throw new Error(`Could not resolve stop "${stop.stopName}"`);
-  console.log(`BUS ${stop.stopKey}: "${stop.stopName}" → EFA id ${stopId}`);
-
+  // Resolve stop code → EFA internal ID via Stop Finder (type_sf=stop is unambiguous).
+  const stopId = await resolveStopByCode(stop.stopCode, apiKey);
+  if (!stopId) throw new Error(`Could not resolve stop code "${stop.stopCode}"`);
+  console.log(`BUS ${stop.stopKey}: code ${stop.stopCode} → EFA id ${stopId}`);
   const events = await getDepartures(stopId, apiKey, dtOpts);
   const now = dtOpts.fromMins ?? nowMinsSydney();
 
   const sample = events.slice(0, 4).map((e) =>
     `${e.transportation?.number} "${e.transportation?.description}" dest="${e.transportation?.destination?.name}"`
   ).join(" | ");
-  console.log(`BUS ${stop.stopKey} [${stopId}]: ${events.length} events. ${sample}`);
+  console.log(`BUS ${stop.stopKey} [${stop.stopCode}]: ${events.length} events. ${sample}`);
 
   // Log ALL route numbers from this stop so we can identify the correct filter value
   const allRouteNums = [...new Set(events.map((e) => (e.transportation?.number ?? "?").trim()))];
