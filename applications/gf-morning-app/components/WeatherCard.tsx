@@ -23,7 +23,6 @@ export default function WeatherCard() {
 
   useEffect(() => {
     fetchForecast().then(setForecast);
-    // Get current Sydney hour for morning label logic
     const sydneyHour = parseInt(
       new Date().toLocaleTimeString("en-AU", {
         timeZone: "Australia/Sydney",
@@ -44,9 +43,18 @@ export default function WeatherCard() {
   const umbrella = getUmbrellaRec(day.morningRainChance, day.eveningRainChance);
   const emoji = CONDITION_EMOJI[day.condition] ?? "🌤️";
 
-  // If it's today and past 9am, label morning as historical
   const isToday = selectedIdx === 0;
-  const morningLabel = isToday && nowHour >= 9 ? "🌅 This morning (7–9am)" : "🌅 Morning (7–9am)";
+  const morningPassed = isToday && nowHour >= 9;
+
+  // Morning label
+  const morningLabel = morningPassed ? "🌅 This morning (7–9am)" : "🌅 Morning (7–9am)";
+
+  // Umbrella day suffix — flows naturally
+  function umbrellaSuffix() {
+    if (selectedIdx === 0) return "";
+    if (day.label === "Tomorrow") return " tomorrow";
+    return ` on ${day.label}`;
+  }
 
   return (
     <div className="card">
@@ -99,13 +107,22 @@ export default function WeatherCard() {
 
       {/* Morning / Evening breakdown */}
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <div className="bg-slate-50 rounded-2xl p-3">
+        {/* Morning — grey out if past 9am today */}
+        <div className={`rounded-2xl p-3 ${morningPassed ? "bg-slate-50/50 opacity-50" : "bg-slate-50"}`}>
           <p className="text-xs font-semibold text-slate-500 mb-2">{morningLabel}</p>
-          <p className="text-2xl font-bold text-slate-800">{day.morningTemp}°</p>
-          <p className={`text-xs font-semibold mt-1 ${day.morningRainChance > 40 ? "text-blue-500" : "text-slate-400"}`}>
-            💧 {day.morningRainChance}% rain
+          <p className={`text-2xl font-bold ${morningPassed ? "text-slate-400" : "text-slate-800"}`}>
+            {day.morningTemp}°
           </p>
+          {morningPassed ? (
+            <p className="text-xs text-slate-400 mt-1 italic">already passed</p>
+          ) : (
+            <p className={`text-xs font-semibold mt-1 ${day.morningRainChance > 40 ? "text-blue-500" : "text-slate-400"}`}>
+              💧 {day.morningRainChance}% rain
+            </p>
+          )}
         </div>
+
+        {/* Evening */}
         <div className="bg-slate-50 rounded-2xl p-3">
           <p className="text-xs font-semibold text-slate-500 mb-2">🌆 Evening (6–8pm)</p>
           <p className="text-2xl font-bold text-slate-800">{day.eveningTemp}°</p>
@@ -127,7 +144,7 @@ export default function WeatherCard() {
           <span className="text-lg">{umbrella === "bring" ? "☔" : "✅"}</span>
           <span>
             {umbrella === "bring"
-              ? `Don't get wet pookie, bring an umbrella ☔${selectedIdx > 0 ? ` on ${day.label}` : ""}`
+              ? `Don't get wet pookie, bring an umbrella ☔${umbrellaSuffix()}`
               : "No umbrella needed"}
           </span>
         </div>
