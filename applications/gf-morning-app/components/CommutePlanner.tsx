@@ -1,8 +1,7 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { WharfName, PrimaryMode } from "../types";
 import {
-  generateAllTrips,
   filterTrips,
   tripsArrivingBy,
   formatDist,
@@ -126,39 +125,29 @@ export default function CommutePlanner() {
   const [results, setResults] = useState<Results | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [isLive, setIsLive] = useState(false);
-  const [liveTrips, setLiveTrips] = useState<ScheduleTrip[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  // Fetch live trips for ferry data only — bus static schedule is always used for planning
-  useEffect(() => {
-    function fetchLive() {
-      fetch("/api/transport")
-        .then((r) => r.ok ? r.json() : null)
-        .then((data) => {
-          if (data?.trips && data.trips.length > 0) {
-            setLiveTrips(data.trips as ScheduleTrip[]);
-            setIsLive(data.isRealtime ?? false);
-          }
-        })
-        .catch(() => {});
-    }
-    fetchLive();
-    const interval = setInterval(fetchLive, 60_000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Always use static schedule as the base for planning.
-  // Merge live ferry trips on top (more accurate times) but keep static bus trips
-  // since the live bus API only covers the next 2 hours.
-  const allTrips = useMemo(() => {
-    const staticTrips = generateAllTrips();
-    if (liveTrips.length === 0) return staticTrips;
-    const liveFerries = liveTrips.filter((t) => t.mode === "ferry");
-    const staticBuses = staticTrips.filter((t) => t.mode === "bus");
-    return [...liveFerries, ...staticBuses];
-  }, [liveTrips]);
-
-  function handlePlan() {
+  async function handlePlan() {
     setExpanded(false);
+    setLoading(true);
+
+    // Request departures starting 2h before arriveBy so we capture all relevant trips
+    const fromMins = Math.max(0, toMins(arrivalTime) - 120);
+    const fromH = String(Math.floor(fromMins / 60)).padStart(2, "0");
+    const fromM = String(fromMins % 60).padStart(2, "0");
+    const from = `${fromH}:${fromM}`;
+
+    const url = `/api/transport?date=${date}&from=${from}`;
+    let allTrips: ScheduleTrip[] = [];
+    try {
+      const res = await fetch(url);
+      const data = res.ok ? await res.json() : null;
+      allTrips = (data?.trips ?? []) as ScheduleTrip[];
+      setIsLive(data?.isRealtime ?? false);
+    } catch { /* leave allTrips empty */ }
+
+    setLoading(false);
+
     const filtered = filterTrips(allTrips, {
       mode: mode === "all" ? undefined : mode,
       wharf: mode === "ferry" ? ferryWharf : undefined,
@@ -312,8 +301,8 @@ export default function CommutePlanner() {
         </select>
       )}
 
-      <button onClick={handlePlan} className="btn-primary w-full mb-4">
-        Show options for {dateLabel}
+      <button onClick={handlePlan} disabled={loading} className="btn-primary w-full mb-4">
+        {loading ? "Loading…" : `Show options for ${dateLabel}`}
       </button>
 
       {/* Results */}

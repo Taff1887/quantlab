@@ -235,16 +235,22 @@ async function resolveStopByCode(stopCode: string, apiKey: string): Promise<stri
 
 // ── Departure Monitor helper ──────────────────────────────────────────────────
 
-async function getDepartures(stopId: string, apiKey: string, typeMode: "stop" | "any" = "stop") {
+async function getDepartures(
+  stopId: string,
+  apiKey: string,
+  opts: { itdDate?: string; itdTime?: string } = {}
+) {
   const url = new URL(DEP_MON);
   url.searchParams.set("outputFormat",          "rapidJSON");
   url.searchParams.set("coordOutputFormat",     "EPSG:4326");
-  url.searchParams.set("type_dm",               typeMode);
+  url.searchParams.set("type_dm",               "stop");
   url.searchParams.set("name_dm",               stopId);
   url.searchParams.set("mode",                  "direct");
   url.searchParams.set("departureMonitorMacro", "true");
   url.searchParams.set("TfNSWDM",               "true");
   url.searchParams.set("version",               "10.2.1.42");
+  if (opts.itdDate) url.searchParams.set("itdDate", opts.itdDate);
+  if (opts.itdTime) url.searchParams.set("itdTime", opts.itdTime);
 
   const res = await fetch(url.toString(), {
     headers: { Authorization: `apikey ${apiKey}` },
@@ -258,12 +264,16 @@ async function getDepartures(stopId: string, apiKey: string, typeMode: "stop" | 
 
 // ── Fetch ferry wharf ─────────────────────────────────────────────────────────
 
-async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
+async function fetchWharf(
+  wharf: typeof FERRY_WHARVES[0],
+  apiKey: string,
+  dtOpts: { itdDate?: string; itdTime?: string; fromMins?: number } = {}
+) {
   const stopId = await resolveStopId(wharf.searchName, apiKey, false);
   if (!stopId) throw new Error(`No stop found for ${wharf.wharfKey}`);
 
-  const events = await getDepartures(stopId, apiKey);
-  const now = nowMinsSydney();
+  const events = await getDepartures(stopId, apiKey, dtOpts);
+  const now = dtOpts.fromMins ?? nowMinsSydney();
 
   const sample = events.slice(0, 4).map((e) =>
     `${e.transportation?.number} "${e.transportation?.description}"`
@@ -314,14 +324,17 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
 
 // ── Fetch bus stop ────────────────────────────────────────────────────────────
 
-async function fetchBusStop(stop: typeof BUS_STOPS[0], apiKey: string) {
-  // Resolve the bus stop name → EFA internal ID (same pattern as ferry wharves)
+async function fetchBusStop(
+  stop: typeof BUS_STOPS[0],
+  apiKey: string,
+  dtOpts: { itdDate?: string; itdTime?: string; fromMins?: number } = {}
+) {
   const stopId = await resolveStopId(stop.stopName, apiKey, true);
   if (!stopId) throw new Error(`Could not resolve stop "${stop.stopName}"`);
   console.log(`BUS ${stop.stopKey}: "${stop.stopName}" → EFA id ${stopId}`);
 
-  const events = await getDepartures(stopId, apiKey);
-  const now = nowMinsSydney();
+  const events = await getDepartures(stopId, apiKey, dtOpts);
+  const now = dtOpts.fromMins ?? nowMinsSydney();
 
   const sample = events.slice(0, 4).map((e) =>
     `${e.transportation?.number} "${e.transportation?.description}" dest="${e.transportation?.destination?.name}"`
@@ -389,13 +402,26 @@ async function fetchBusStop(stop: typeof BUS_STOPS[0], apiKey: string) {
 
 // ── GET handler ───────────────────────────────────────────────────────────────
 
-export async function GET() {
+export async function GET(request: Request) {
   const apiKey = process.env.TFNSW_API_KEY;
   if (!apiKey) return Response.json({ error: "NO_KEY", trips: [] }, { status: 200 });
 
+  // Optional ?date=YYYY-MM-DD&from=HH:MM for planning future trips
+  const { searchParams } = new URL(request.url);
+  const dateParam = searchParams.get("date"); // e.g. "2026-05-13"
+  const fromParam = searchParams.get("from"); // e.g. "07:00"
+
+  const itdDate = dateParam ? dateParam.replace(/-/g, "") : undefined;
+  const itdTime = fromParam ? fromParam.replace(":", "") : undefined;
+  const fromMins = fromParam
+    ? (() => { const [h, m] = fromParam.split(":").map(Number); return h * 60 + m; })()
+    : undefined;
+
+  const dtOpts = { itdDate, itdTime, fromMins };
+
   const [ferryResults, busResults] = await Promise.all([
-    Promise.allSettled(FERRY_WHARVES.map((w) => fetchWharf(w, apiKey))),
-    Promise.allSettled(BUS_STOPS.map((s) => fetchBusStop(s, apiKey))),
+    Promise.allSettled(FERRY_WHARVES.map((w) => fetchWharf(w, apiKey, dtOpts))),
+    Promise.allSettled(BUS_STOPS.map((s) => fetchBusStop(s, apiKey, dtOpts))),
   ]);
 
   ferryResults.forEach((r, i) => {
