@@ -147,7 +147,7 @@ function buildScheduleOptions(bh: number, bm: number): TransportOption[] {
       departureTime: toTime(...addMins(bh, bm, 10)),
       arrivalTime: toTime(...addMins(bh, bm, 54)),
       totalMins: 54,
-      notes: "B100 to Wynyard",
+      notes: "Route 100 to Lang Park, York St",
       isBest: false,
     },
   ];

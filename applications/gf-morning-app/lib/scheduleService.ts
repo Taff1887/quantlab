@@ -149,10 +149,10 @@ const ROUTES: RouteConfig[] = [
     walkMins: buffer(10), walkDistanceM: 700,
     driveMins: buffer(3), driveDistanceM: 450,
     transitMins: 34,
-    destinationStop: "Wynyard",
-    walkToOfficeMins: 10,
-    intervalMins: 30,
-    firstDep: "06:00", lastDep: "22:30",
+    destinationStop: "Lang Park, York St",
+    walkToOfficeMins: 11,
+    intervalMins: 15,
+    firstDep: "05:10", lastDep: "22:30",
   },
 ];
 

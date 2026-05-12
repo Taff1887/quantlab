@@ -69,7 +69,7 @@ const FERRY_WHARVES = [
 
 const BUS_STOPS = [
   {
-    stopCode:          "208858",   // raw TfNSW stop code — used with type_dm=any
+    stopCode:          "208858",   // TfNSW stop code, resolved via type_sf=stop
     stopKey:           "bus-100-whiting",
     stopName:          "Bradleys Head Rd at Whiting Beach Rd",
     departureOffsetMins: 0,
@@ -78,9 +78,9 @@ const BUS_STOPS = [
     walkDistanceM:     700,
     driveMins:         3,
     driveDistanceM:    450,
-    transitMins:       40,   // Bradleys Head Rd → City QVB (~40 min)
-    destinationStop:   "City QVB",
-    walkToOfficeMins:  11,   // City QVB → 1 Farrer Place
+    transitMins:       34,   // Bradleys Head Rd → Lang Park, York St
+    destinationStop:   "Lang Park, York St",
+    walkToOfficeMins:  11,   // Lang Park, York St → 1 Farrer Place
   },
 ];
 
