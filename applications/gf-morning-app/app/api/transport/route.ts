@@ -168,7 +168,8 @@ function isInboundBus(ev: any, routeFilter: string[]): boolean {
 async function resolveStopId(
   searchName: string,
   apiKey: string,
-  preferBus = false
+  preferBus = false,
+  cacheSeconds = 86400
 ): Promise<string | null> {
   const url = new URL(STOP_FINDER);
   url.searchParams.set("outputFormat",      "rapidJSON");
@@ -177,10 +178,11 @@ async function resolveStopId(
   url.searchParams.set("name_sf",           searchName);
   url.searchParams.set("TfNSWSF",           "true");
 
-  const res = await fetch(url.toString(), {
-    headers: { Authorization: `apikey ${apiKey}` },
-    next: { revalidate: 86400 },
-  });
+  const fetchOpts = cacheSeconds > 0
+    ? { headers: { Authorization: `apikey ${apiKey}` }, next: { revalidate: cacheSeconds } }
+    : { headers: { Authorization: `apikey ${apiKey}` }, cache: "no-store" as const };
+
+  const res = await fetch(url.toString(), fetchOpts);
   if (!res.ok) { console.warn(`Stop Finder ${res.status} for "${searchName}"`); return null; }
   const data = await res.json();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -328,110 +330,91 @@ async function fetchWharf(
   return trips;
 }
 
-// ── Fetch bus trips via Trip Planner ──────────────────────────────────────────
-// Uses /v1/tp/trip (origin → destination) instead of Departure Monitor.
-// This sidesteps EFA stop ID format issues — we just pass the public stop codes.
+// ── Fetch bus stop ────────────────────────────────────────────────────────────
+// Uses Departure Monitor (same as ferries). Tries multiple stop ID candidates
+// in order, uses the first that returns Route 100 events.
 
-async function fetchBusTrips(
+async function fetchBusStop(
   stop: typeof BUS_STOPS[0],
   apiKey: string,
   dtOpts: { itdDate?: string; itdTime?: string; fromMins?: number } = {}
 ): Promise<{ trips: object[]; debug: string[] }> {
   const dbg: string[] = [];
-  const now = dtOpts.fromMins ?? nowMinsSydney();
 
-  // Try origin specs in order until we get Route 100 journeys
-  const originAttempts = [
-    { type: "stop", name: stop.stopCode },   // raw public stop code
-    { type: "any",  name: stop.stopName },   // full stop name text search
-    { type: "any",  name: stop.stopCode },   // stop code as text search
-  ];
+  // Build candidate EFA IDs to try. Use no-cache so we never get stuck on a
+  // wrong stop ID from a previous deployment's cached Stop Finder result.
+  const candidates: { label: string; id: string }[] = [];
+
+  const idByName = await resolveStopId(stop.stopName, apiKey, true, 0).catch(() => null);
+  if (idByName) candidates.push({ label: `name(${idByName})`, id: idByName });
+
+  const idByCode = await resolveStopByCode(stop.stopCode, apiKey).catch(() => null);
+  if (idByCode && idByCode !== idByName) candidates.push({ label: `code(${idByCode})`, id: idByCode });
+
+  // Also try the raw public stop code directly with type_dm=stop
+  if (stop.stopCode !== idByName && stop.stopCode !== idByCode) {
+    candidates.push({ label: `raw(${stop.stopCode})`, id: stop.stopCode });
+  }
+
+  dbg.push(`candidates: ${candidates.map((c) => c.label).join(" | ")}`);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let route100Journeys: any[] = [];
+  let events: any[] = [];
 
-  for (const origin of originAttempts) {
-    if (route100Journeys.length > 0) break;
+  for (const candidate of candidates) {
     try {
-      const url = new URL(TRIP_PLANNER);
-      url.searchParams.set("outputFormat",      "rapidJSON");
-      url.searchParams.set("coordOutputFormat", "EPSG:4326");
-      url.searchParams.set("depArrMacro",       "dep");
-      url.searchParams.set("type_origin",       origin.type);
-      url.searchParams.set("name_origin",       origin.name);
-      url.searchParams.set("type_destination",  "stop");
-      url.searchParams.set("name_destination",  stop.destinationStopCode);
-      url.searchParams.set("calcNumberOfTrips", "10");
-      url.searchParams.set("TfNSWTR",           "true");
-      if (dtOpts.itdDate) url.searchParams.set("itdDate", dtOpts.itdDate);
-      if (dtOpts.itdTime) url.searchParams.set("itdTime", dtOpts.itdTime);
-
-      const res = await fetch(url.toString(), {
-        headers: { Authorization: `apikey ${apiKey}` },
-        next: { revalidate: 30 },
-      });
-
-      if (!res.ok) {
-        dbg.push(`TP origin=${origin.type}:"${origin.name}" → HTTP ${res.status}`);
-        continue;
-      }
-
-      const data = await res.json();
+      const evs = await getDepartures(candidate.id, apiKey, dtOpts);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const journeys: any[] = data?.journeys ?? [];
-
-      // Keep only Route 100 journeys (single bus leg, matching routeFilter)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const matched = journeys.filter((j: any) => {
-        const leg = j.legs?.[0];
-        const routeNum = (leg?.transportation?.number ?? "").trim().toUpperCase();
-        return stop.routeFilter.map((r) => r.toUpperCase()).includes(routeNum);
-      });
-
-      dbg.push(`TP origin=${origin.type}:"${origin.name}" → ${journeys.length} journeys, ${matched.length} Route 100`);
-      if (matched.length > 0) route100Journeys = matched;
+      const route100Count = evs.filter((ev: any) => {
+        const n = (ev.transportation?.number ?? "").trim().toUpperCase();
+        return stop.routeFilter.map((r) => r.toUpperCase()).includes(n);
+      }).length;
+      dbg.push(`${candidate.label}: ${evs.length} events, ${route100Count} Route 100`);
+      if (route100Count > 0) { events = evs; break; }
     } catch (err) {
-      dbg.push(`TP origin=${origin.type}:"${origin.name}" error: ${err}`);
+      dbg.push(`${candidate.label}: error ${err}`);
     }
   }
 
-  if (route100Journeys.length === 0) {
-    dbg.push("No Route 100 journeys found");
-    console.log(`BUS ${stop.stopKey}: ${dbg.join(" | ")}`);
-    return { trips: [], debug: dbg };
-  }
+  console.log(`BUS ${stop.stopKey}: ${dbg.join(" | ")}`);
+
+  if (events.length === 0) return { trips: [], debug: dbg };
+
+  // ── Filter + build trips ──────────────────────────────────────────────────
+  const now = dtOpts.fromMins ?? nowMinsSydney();
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const inbound = events.filter((ev: any) => {
+    const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned ?? "";
+    if (!depIso) return false;
+    const mins = minsUntil(isoToHHMM(depIso), now);
+    // 90-min window — wide enough for CommutePlanner (from = arriveBy − 2h)
+    if (mins < 0 || mins > 90) return false;
+    return isInboundBus(ev, stop.routeFilter);
+  });
 
   const seen = new Set<string>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const deduped = inbound.filter((ev: any) => {
+    const key = ev.departureTimeEstimated ?? ev.departureTimePlanned ?? "";
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  dbg.push(`after filter+dedup: ${deduped.length}/${events.length}`);
+
   const trips = [];
-
-  for (const journey of route100Journeys) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const leg: any = journey.legs?.[0];
-    if (!leg) continue;
-
-    const depIso: string = leg.origin?.departureTimeEstimated ?? leg.origin?.departureTimePlanned ?? "";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const ev of deduped as any[]) {
+    const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned;
     if (!depIso) continue;
-
-    // Deduplicate by ISO departure time
-    if (seen.has(depIso)) continue;
-    seen.add(depIso);
-
-    const departureTime = isoToHHMM(depIso);
-    const mins = minsUntil(departureTime, now);
-    // 90-min window so CommutePlanner (from = arriveBy − 2h) captures all relevant options
-    if (mins < 0 || mins > 90) continue;
-
-    // Drop outbound (Taronga Zoo-bound) legs
-    const dest = (leg.transportation?.destination?.name ?? "").toLowerCase();
-    const desc = (leg.transportation?.description ?? "").toLowerCase();
-    if (dest.includes("taronga") || desc.includes("taronga zoo")) continue;
-
-    const arrIso: string = leg.destination?.arrivalTimeEstimated ?? leg.destination?.arrivalTimePlanned ?? "";
+    const departureTime      = isoToHHMM(depIso);
     const walkToOffice       = stop.walkToOfficeMins ?? BUS_OFFICE_WALK_MINS;
-    const destinationArrival = arrIso ? isoToHHMM(arrIso) : addMins(departureTime, stop.transitMins);
+    const destinationArrival = addMins(departureTime, stop.transitMins);
     const officeArrival      = addMins(destinationArrival, walkToOffice);
     const totalMins          = stop.walkMins + stop.transitMins + walkToOffice;
-    const routeNum           = (leg.transportation?.number ?? "").trim();
+    const routeNum           = (ev.transportation?.number ?? "").trim();
     const routeName          = routeNum ? `Route ${routeNum} to ${stop.destinationStop}` : `Bus to ${stop.destinationStop}`;
 
     trips.push({
@@ -450,12 +433,9 @@ async function fetchBusTrips(
       totalMins,
       leaveByWalking:    subMins(departureTime, stop.walkMins + 2),
       leaveByDriving:    subMins(departureTime, stop.driveMins + 2),
-      isRealtime:        !!(leg.origin?.departureTimeEstimated),
+      isRealtime:        !!ev.departureTimeEstimated,
     });
   }
-
-  dbg.push(`Final: ${trips.length} trips after window+direction filter`);
-  console.log(`BUS ${stop.stopKey}: ${dbg.join(" | ")}`);
   return { trips, debug: dbg };
 }
 
@@ -482,7 +462,7 @@ export async function GET(request: Request) {
 
   const [ferryResults, busResults] = await Promise.all([
     Promise.allSettled(FERRY_WHARVES.map((w) => fetchWharf(w, apiKey, dtOpts))),
-    Promise.allSettled(BUS_STOPS.map((s) => fetchBusTrips(s, apiKey, dtOpts))),
+    Promise.allSettled(BUS_STOPS.map((s) => fetchBusStop(s, apiKey, dtOpts))),
   ]);
 
   ferryResults.forEach((r, i) => {
