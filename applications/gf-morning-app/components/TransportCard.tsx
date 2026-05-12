@@ -131,7 +131,7 @@ export default function TransportCard() {
           </div>
         </div>
         <p className="text-xs text-slate-400 mt-0.5">
-          1 Rickard Ave, Mosman → 1 Farrer Place, Sydney
+          Mosman → Circular Quay ferry
         </p>
       </div>
 

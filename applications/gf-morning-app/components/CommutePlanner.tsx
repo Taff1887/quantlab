@@ -220,7 +220,7 @@ export default function CommutePlanner() {
           </span>
         </div>
         <p className="text-xs text-slate-400 mt-0.5">
-          Plan ahead — what time do you need to be at the office?
+          Mosman → Circular Quay → 1 Farrer Place
         </p>
       </div>
 
