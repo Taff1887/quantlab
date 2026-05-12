@@ -68,10 +68,6 @@ const FERRY_WHARVES = [
 
 const BUS_STOPS = [
   {
-    // Route 100 starts at Taronga Zoo Ferry — resolve via that wharf (always works).
-    // The DM for the ferry wharf returns both ferry events AND Route 100 bus events.
-    // We filter to product class 5 (bus) + route 100 + city-bound direction.
-    resolveVia:      "Taronga Zoo Ferry Wharf",
     stopKey:         "bus-b100",
     stopName:        "Bradleys Head Rd at Whiting Beach Rd",
     routeFilter:     ["100"],
@@ -82,6 +78,13 @@ const BUS_STOPS = [
     transitMins:     34,
     destinationStop: "Lang Park, York St",
     walkToOfficeMins: 11,
+    // Try each name in order until one returns Route 100 events
+    resolveAttempts: [
+      { name: "Taronga Zoo Ferry, Bradleys Head Rd", preferBus: true  },
+      { name: "Taronga Zoo Ferry Wharf",             preferBus: false },
+      { name: "Bradleys Head Rd at Whiting Beach Rd", preferBus: true },
+      { name: "Taronga Zoo",                          preferBus: true  },
+    ],
   },
 ];
 
@@ -340,16 +343,29 @@ async function fetchBusStop(
 ): Promise<{ trips: object[]; debug: string[] }> {
   const dbg: string[] = [];
 
-  const stopId = await resolveStopId(stop.resolveVia, apiKey, false);
-  if (!stopId) throw new Error(`Could not resolve "${stop.resolveVia}"`);
-  dbg.push(`resolved "${stop.resolveVia}" → ${stopId}`);
-
-  const events = await getDepartures(stopId, apiKey, dtOpts);
-  dbg.push(`DM returned ${events.length} events`);
-
+  // Try each candidate stop name until one returns Route 100 events
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const allRoutes = [...new Set(events.map((e: any) => `${e.transportation?.product?.class}:${e.transportation?.number ?? "?"}`))];
-  dbg.push(`routes seen: ${allRoutes.join(", ")}`);
+  let events: any[] = [];
+
+  for (const attempt of stop.resolveAttempts) {
+    const stopId = await resolveStopId(attempt.name, apiKey, attempt.preferBus, 0).catch(() => null);
+    if (!stopId) { dbg.push(`"${attempt.name}" → null`); continue; }
+
+    const evs = await getDepartures(stopId, apiKey, dtOpts).catch(() => [] as object[]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r100 = (evs as any[]).filter((ev: any) => {
+      const cls = ev.transportation?.product?.class;
+      if (cls != null && cls !== 5 && cls !== 11) return false;
+      const n = (ev.transportation?.number ?? "").trim().toUpperCase();
+      return stop.routeFilter.map((r) => r.toUpperCase()).includes(n);
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const allCls = [...new Set((evs as any[]).map((e: any) => `${e.transportation?.product?.class}:${e.transportation?.number ?? "?"}`))];
+    dbg.push(`"${attempt.name}"→${stopId}: ${evs.length} events [${allCls.join(",")}] ${r100.length} Route100`);
+
+    if (r100.length > 0) { events = evs as object[]; break; }
+  }
+
   console.log(`BUS ${stop.stopKey}: ${dbg.join(" | ")}`);
 
   const now = dtOpts.fromMins ?? nowMinsSydney();
