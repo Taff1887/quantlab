@@ -162,10 +162,8 @@ export default function CommutePlanner() {
 
     const byMins = toMins(arrivalTime);
 
-    // Main: arrives ≤ target AND ≥ target - 60min
-    const onTime = tripsArrivingBy(filtered, arrivalTime).filter(
-      (t) => toMins(t.officeArrival) >= byMins - 60
-    );
+    // Main: ALL trips arriving at or before the target time
+    const onTime = tripsArrivingBy(filtered, arrivalTime);
 
     // Just late: arrives target+1 → target+5 (shown in black)
     const justLate = filtered

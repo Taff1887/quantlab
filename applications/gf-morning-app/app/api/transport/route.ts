@@ -175,15 +175,32 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
   ).join(" | ");
   console.log(`${wharf.wharfKey} [${stopId}]: ${events.length} events. ${sample}`);
 
-  // The stop is already confirmed as a ferry wharf via Stop Finder, so ALL departures
-  // from this stop are ferry services — no need to filter by product class or route prefix.
-  // Just filter direction: keep only inbound services heading to Circular Quay.
-  const inbound = events.filter((ev) => isInboundToCity(ev));
+  // The stop is already confirmed as a ferry wharf via Stop Finder.
+  // Keep only inbound services (direction filter), then cap to next 2 hours.
+  const nowSydney = new Date().toLocaleTimeString("en-AU", {
+    timeZone: SYD_TZ, hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+  const [nowH, nowM] = nowSydney.split(":").map(Number);
+  const nowTotalMins = nowH * 60 + nowM;
 
-  console.log(`${wharf.wharfKey}: ${inbound.length}/${events.length} kept after ferry+direction filter`);
+  const inbound = events.filter((ev) => {
+    if (!isInboundToCity(ev)) return false;
+    const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned ?? "";
+    if (!depIso) return false;
+    const dep = isoToHHMM(depIso);
+    const [dh, dm] = dep.split(":").map(Number);
+    const depMins = dh * 60 + dm;
+    // How many minutes until departure (handle midnight wrap)
+    const minsUntil = depMins >= nowTotalMins
+      ? depMins - nowTotalMins
+      : depMins + 1440 - nowTotalMins;
+    return minsUntil >= 0 && minsUntil <= 120; // next 2 hours only
+  });
+
+  console.log(`${wharf.wharfKey}: ${inbound.length}/${events.length} inbound within 2 h`);
 
   const trips = [];
-  for (const ev of inbound.slice(0, 20)) {
+  for (const ev of inbound) {
     const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned;
     if (!depIso) continue;
 

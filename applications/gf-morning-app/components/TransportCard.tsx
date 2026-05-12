@@ -90,8 +90,11 @@ export default function TransportCard() {
 
   const nowMins = nowSydneyMins();
   const filtered = options.filter((o) => {
+    const depMins = timeToMins(o.departureTime);
     // Drop departures that have already left (allow 1 min grace)
-    if (timeToMins(o.departureTime) < nowMins - 1) return false;
+    if (depMins < nowMins - 1) return false;
+    // Only show next 60 minutes
+    if (depMins > nowMins + 60) return false;
 
     if (o.mode === "ferry") {
       if (mode === "bus") return false; // bus-only view
