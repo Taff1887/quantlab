@@ -128,7 +128,7 @@ export default function CommutePlanner() {
   const [isLive, setIsLive] = useState(false);
   const [liveTrips, setLiveTrips] = useState<ScheduleTrip[]>([]);
 
-  // Fetch live trips and refresh every minute
+  // Fetch live trips for ferry data only — bus static schedule is always used for planning
   useEffect(() => {
     function fetchLive() {
       fetch("/api/transport")
@@ -139,17 +139,23 @@ export default function CommutePlanner() {
             setIsLive(data.isRealtime ?? false);
           }
         })
-        .catch(() => { /* fall through to static schedule */ });
+        .catch(() => {});
     }
     fetchLive();
     const interval = setInterval(fetchLive, 60_000);
     return () => clearInterval(interval);
   }, []);
 
-  const allTrips = useMemo(
-    () => liveTrips.length > 0 ? liveTrips : generateAllTrips(),
-    [liveTrips]
-  );
+  // Always use static schedule as the base for planning.
+  // Merge live ferry trips on top (more accurate times) but keep static bus trips
+  // since the live bus API only covers the next 2 hours.
+  const allTrips = useMemo(() => {
+    const staticTrips = generateAllTrips();
+    if (liveTrips.length === 0) return staticTrips;
+    const liveFerries = liveTrips.filter((t) => t.mode === "ferry");
+    const staticBuses = staticTrips.filter((t) => t.mode === "bus");
+    return [...liveFerries, ...staticBuses];
+  }, [liveTrips]);
 
   function handlePlan() {
     setExpanded(false);

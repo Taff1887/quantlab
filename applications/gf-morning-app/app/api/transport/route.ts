@@ -315,12 +315,12 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
 // ── Fetch bus stop ────────────────────────────────────────────────────────────
 
 async function fetchBusStop(stop: typeof BUS_STOPS[0], apiKey: string) {
-  // Use type_sf=stop to resolve the TfNSW stop code → EFA internal ID
-  const stopId = await resolveStopByCode(stop.stopCode, apiKey);
-  if (!stopId) throw new Error(`Could not resolve stop code ${stop.stopCode}`);
-  console.log(`BUS ${stop.stopKey}: code ${stop.stopCode} → EFA id ${stopId}`);
+  // Resolve the bus stop name → EFA internal ID (same pattern as ferry wharves)
+  const stopId = await resolveStopId(stop.stopName, apiKey, true);
+  if (!stopId) throw new Error(`Could not resolve stop "${stop.stopName}"`);
+  console.log(`BUS ${stop.stopKey}: "${stop.stopName}" → EFA id ${stopId}`);
 
-  const events = await getDepartures(stopId, apiKey, "stop");
+  const events = await getDepartures(stopId, apiKey);
   const now = nowMinsSydney();
 
   const sample = events.slice(0, 4).map((e) =>
