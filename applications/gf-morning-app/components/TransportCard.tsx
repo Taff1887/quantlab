@@ -14,7 +14,7 @@ const FERRY_WHARVES: { label: string; value: WharfName }[] = [
 ];
 
 const BUS_ROUTES: { label: string; value: string }[] = [
-  { label: "B100 · Bradleys Head Rd", value: "bus-b100" },
+  { label: "Route 100 · Bradleys Head Rd", value: "bus-b100" },
 ];
 
 function timeToMins(t: string) {

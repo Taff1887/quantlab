@@ -299,15 +299,22 @@ async function fetchBusStop(stop: typeof BUS_STOPS[0], apiKey: string) {
   const allRouteNums = [...new Set(events.map((e) => (e.transportation?.number ?? "?").trim()))];
   console.log(`BUS ${stop.stopKey} route numbers seen: ${JSON.stringify(allRouteNums)}`);
 
+  // No direction filter — this stop is physically on the city-bound side of the road.
+  // Just match route number (case-insensitive) and time window.
   const inbound = events.filter((ev) => {
-    if (!isInboundBus(ev, stop.routeFilter)) return false;
     const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned ?? "";
     if (!depIso) return false;
     const mins = minsUntil(isoToHHMM(depIso), now);
-    return mins >= 0 && mins <= 120;
+    if (mins < 0 || mins > 120) return false;
+    // Route filter — empty array means accept all
+    if (stop.routeFilter.length > 0) {
+      const routeNum = (ev.transportation?.number ?? "").trim().toUpperCase();
+      if (!stop.routeFilter.map((r) => r.toUpperCase()).includes(routeNum)) return false;
+    }
+    return true;
   });
 
-  console.log(`BUS ${stop.stopKey}: ${inbound.length}/${events.length} inbound within 2 h`);
+  console.log(`BUS ${stop.stopKey}: ${inbound.length}/${events.length} matched within 2 h`);
 
   const trips = [];
   for (const ev of inbound) {

@@ -23,7 +23,7 @@ const FERRY_WHARVES: { label: string; value: WharfName | "all" }[] = [
 
 const BUS_ROUTES = [
   { label: "All buses", value: "all" },
-  { label: "B100 — Bradleys Head Rd", value: "bus-b100" },
+  { label: "Route 100 — Bradleys Head Rd", value: "bus-b100" },
 ];
 
 function tomorrowStr() {
