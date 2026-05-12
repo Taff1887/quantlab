@@ -64,11 +64,11 @@ const FERRY_WHARVES = [
 ];
 
 // ── Bus stops — Bradleys Head Rd only ─────────────────────────────────────────
-// Route 100: Bradleys Head Rd at Whiting Beach Rd, Mosman (first stop after Taronga Zoo)
+// Route 100: Bradleys Head Rd at Whiting Beach Rd, Mosman — Stop ID 208858 (confirmed from TfNSW)
 
 const BUS_STOPS = [
   {
-    searchName:      "Bradleys Head Rd at Whiting Beach Rd",
+    stopId:          "208858",
     stopKey:         "bus-100-whiting",
     stopName:        "Bradleys Head Rd at Whiting Beach Rd",
     routeFilter:     ["100"],
@@ -284,9 +284,8 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
 // ── Fetch bus stop ────────────────────────────────────────────────────────────
 
 async function fetchBusStop(stop: typeof BUS_STOPS[0], apiKey: string) {
-  const stopId = await resolveStopId(stop.searchName, apiKey, true);
-  if (!stopId) throw new Error(`No stop found for "${stop.searchName}"`);
-  console.log(`BUS ${stop.stopKey}: resolved "${stop.searchName}" → stopId=${stopId}`);
+  const stopId = stop.stopId;
+  console.log(`BUS ${stop.stopKey}: using stop ID ${stopId}`);
 
   const events = await getDepartures(stopId, apiKey);
   const now = nowMinsSydney();
