@@ -93,11 +93,16 @@ function pad(n: number) {
   return String(n).padStart(2, "0");
 }
 
-// TfNSW returns ISO strings like "2026-05-12T10:19:00+10:00"
-// We extract HH:MM directly from the string to avoid UTC conversion on Vercel servers
+// TfNSW returns UTC timestamps — convert to Sydney local time explicitly
+const SYD_TZ = "Australia/Sydney";
+
 function isoToHHMM(isoStr: string): string {
-  const match = isoStr.match(/T(\d{2}):(\d{2})/);
-  return match ? `${match[1]}:${match[2]}` : "??:??";
+  return new Date(isoStr).toLocaleTimeString("en-AU", {
+    timeZone: SYD_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 function addMinsToTime(timeStr: string, mins: number): string {
@@ -114,11 +119,14 @@ function subtractMins(timeStr: string, mins: number): string {
 }
 
 function addMinsToIso(isoStr: string, mins: number): string {
-  // Extract local time from ISO string (avoids UTC timezone issue on Vercel)
-  const match = isoStr.match(/T(\d{2}):(\d{2})/);
-  if (!match) return "??:??";
-  const total = parseInt(match[1]) * 60 + parseInt(match[2]) + mins;
-  return `${pad(Math.floor(total / 60) % 24)}:${pad(total % 60)}`;
+  const d = new Date(isoStr);
+  d.setMinutes(d.getMinutes() + mins);
+  return d.toLocaleTimeString("en-AU", {
+    timeZone: SYD_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 async function fetchDepartures(stopId: string, apiKey: string) {
