@@ -22,8 +22,7 @@ const FERRY_WHARVES: { label: string; value: WharfName | "all" }[] = [
 
 const BUS_ROUTES = [
   { label: "All buses", value: "all" },
-  { label: "Route 144 — Military Rd", value: "bus-144" },
-  { label: "Route 178 — Spit Rd", value: "bus-178" },
+  { label: "Route 238 — Bradleys Head Rd", value: "bus-238" },
 ];
 
 function todayStr() {
