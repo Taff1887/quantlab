@@ -109,14 +109,16 @@ export async function GET() {
       FERRY_WHARVES.map((w) => fetchWharf(w, apiKey))
     );
 
-    const trips = results
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const trips: any[] = results
       .filter((r) => r.status === "fulfilled")
-      .flatMap((r) => (r as PromiseFulfilledResult<ReturnType<typeof fetchWharf>>).value);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .flatMap((r) => (r as any).value);
 
     // Sort by departure time
     trips.sort((a, b) => a.departureTime.localeCompare(b.departureTime));
 
-    return Response.json({ trips: await Promise.all(trips), isRealtime: true });
+    return Response.json({ trips, isRealtime: true });
   } catch (err) {
     console.error("TfNSW API error:", err);
     return Response.json({ error: "API_ERROR", trips: [] }, { status: 200 });
