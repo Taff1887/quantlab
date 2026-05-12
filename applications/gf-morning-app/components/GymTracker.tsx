@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { GymSession, WorkoutType, GymDetails, ExerciseSet } from "../types";
 
+const LS_KEY = "gym_sessions_local";
+
 const WORKOUT_TYPES: WorkoutType[] = ["Pilates","Legs","Upper Body","Run","Stairmaster","Other"];
 
 const WORKOUT_EMOJI: Record<WorkoutType, string> = {
@@ -36,7 +38,29 @@ function emptySet(withWeight = true): ExerciseSet {
 
 function emptyDetails(): GymDetails { return {}; }
 
-// ─── Detail summary ──────────────────────────────────────────────────────────
+// ─── localStorage helpers ─────────────────────────────────────────────────────
+
+function lsLoad(): GymSession[] {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as GymSession[];
+    // Sort descending by date (same as DB order)
+    return parsed.sort((a, b) => b.date.localeCompare(a.date));
+  } catch {
+    return [];
+  }
+}
+
+function lsSave(sessions: GymSession[]) {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(sessions));
+  } catch {
+    /* ignore */
+  }
+}
+
+// ─── Detail summary ───────────────────────────────────────────────────────────
 
 function fmtSet(s?: ExerciseSet, showWeight = true): string | null {
   if (!s) return null;
@@ -72,7 +96,7 @@ function DetailSummary({ type, details }: { type: WorkoutType; details?: GymDeta
   return null;
 }
 
-// ─── Exercise row with N/A toggle ────────────────────────────────────────────
+// ─── Exercise row with N/A toggle ─────────────────────────────────────────────
 
 function ExerciseRow({
   label,
@@ -144,11 +168,12 @@ function ExerciseRow({
   );
 }
 
-// ─── Main component ──────────────────────────────────────────────────────────
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function GymTracker() {
   const [sessions, setSessions] = useState<GymSession[]>([]);
   const [loading, setLoading] = useState(true);
+  const [useLocal, setUseLocal] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -163,11 +188,18 @@ export default function GymTracker() {
 
   async function fetchSessions() {
     setLoading(true);
-    const { data } = await supabase
-      .from("gym_sessions")
-      .select("*")
-      .order("date", { ascending: false });
-    setSessions((data as GymSession[]) ?? []);
+    try {
+      const { data, error } = await supabase
+        .from("gym_sessions")
+        .select("*")
+        .order("date", { ascending: false });
+      if (error) throw error;
+      setSessions((data as GymSession[]) ?? []);
+      setUseLocal(false);
+    } catch {
+      setUseLocal(true);
+      setSessions(lsLoad());
+    }
     setLoading(false);
   }
 
@@ -180,7 +212,6 @@ export default function GymTracker() {
         next.delete(key);
       } else {
         next.add(key);
-        // Remove the exercise from details when marking as N/A
         setDetails((d) => {
           const copy = { ...d };
           delete copy[key as keyof GymDetails];
@@ -207,7 +238,6 @@ export default function GymTracker() {
     setFormType(session.type);
     setFormNotes(session.notes ?? "");
     setDetails(session.details ?? emptyDetails());
-    // Pre-mark missing sub-exercises as N/A
     const na = new Set<string>();
     if (session.type === "Legs") {
       if (!session.details?.squats) na.add("squats");
@@ -230,10 +260,33 @@ export default function GymTracker() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const payload = { date: formDate, type: formType, notes: formNotes, details };
-    if (editId) {
-      await supabase.from("gym_sessions").update(payload).eq("id", editId);
-    } else {
-      await supabase.from("gym_sessions").insert({ id: crypto.randomUUID(), ...payload });
+    try {
+      if (editId) {
+        const { error } = await supabase.from("gym_sessions").update(payload).eq("id", editId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("gym_sessions").insert({ id: crypto.randomUUID(), ...payload });
+        if (error) throw error;
+      }
+      setUseLocal(false);
+    } catch {
+      setUseLocal(true);
+      const current = lsLoad();
+      if (editId) {
+        const updated = current.map((s) =>
+          s.id === editId ? { ...s, ...payload } : s
+        );
+        lsSave(updated);
+        setSessions(updated.sort((a, b) => b.date.localeCompare(a.date)));
+      } else {
+        const newSession: GymSession = { id: crypto.randomUUID(), ...payload };
+        const updated = [newSession, ...current].sort((a, b) => b.date.localeCompare(a.date));
+        lsSave(updated);
+        setSessions(updated);
+      }
+      setShowForm(false);
+      setEditId(null);
+      return;
     }
     setShowForm(false);
     setEditId(null);
@@ -241,7 +294,17 @@ export default function GymTracker() {
   }
 
   async function handleDelete(id: string) {
-    await supabase.from("gym_sessions").delete().eq("id", id);
+    try {
+      const { error } = await supabase.from("gym_sessions").delete().eq("id", id);
+      if (error) throw error;
+      setUseLocal(false);
+    } catch {
+      setUseLocal(true);
+      const updated = lsLoad().filter((s) => s.id !== id);
+      lsSave(updated);
+      setSessions(updated);
+      return;
+    }
     fetchSessions();
   }
 
@@ -255,7 +318,14 @@ export default function GymTracker() {
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="section-title">🍑 Butler&apos;s Booty Tracker</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="section-title">🍑 Butler&apos;s Booty Tracker</h2>
+          {useLocal && (
+            <span className="text-xs font-semibold text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-0.5">
+              local only
+            </span>
+          )}
+        </div>
         <button className="btn-primary text-xs py-1.5 px-3" onClick={openAddForm}>
           + Log Session
         </button>

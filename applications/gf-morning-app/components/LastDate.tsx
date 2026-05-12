@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { DateNight } from "../types";
 
+const LS_KEY = "date_nights_local";
+
 function todayStr() {
   return new Date().toISOString().split("T")[0];
 }
@@ -22,19 +24,42 @@ function formatDate(dateStr: string): string {
   });
 }
 
-// Map DB row → DateNight
 function rowToDateNight(row: Record<string, unknown>): DateNight {
   return {
     id: row.id as string,
     date: row.date as string,
     note: (row.note as string) ?? "",
-    createdAt: row.created_at as string,
+    createdAt: (row.created_at as string) ?? (row.createdAt as string) ?? "",
   };
 }
+
+// ─── localStorage helpers ─────────────────────────────────────────────────────
+
+function lsLoad(): DateNight[] {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as DateNight[];
+    return parsed.sort((a, b) => b.date.localeCompare(a.date));
+  } catch {
+    return [];
+  }
+}
+
+function lsSave(dates: DateNight[]) {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(dates));
+  } catch {
+    /* ignore */
+  }
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function LastDate() {
   const [dates, setDates] = useState<DateNight[]>([]);
   const [loading, setLoading] = useState(true);
+  const [useLocal, setUseLocal] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -44,11 +69,18 @@ export default function LastDate() {
 
   async function fetchDates() {
     setLoading(true);
-    const { data } = await supabase
-      .from("date_nights")
-      .select("*")
-      .order("date", { ascending: false });
-    setDates(((data ?? []) as Record<string, unknown>[]).map(rowToDateNight));
+    try {
+      const { data, error } = await supabase
+        .from("date_nights")
+        .select("*")
+        .order("date", { ascending: false });
+      if (error) throw error;
+      setDates(((data ?? []) as Record<string, unknown>[]).map(rowToDateNight));
+      setUseLocal(false);
+    } catch {
+      setUseLocal(true);
+      setDates(lsLoad());
+    }
     setLoading(false);
   }
 
@@ -79,20 +111,72 @@ export default function LastDate() {
     e.preventDefault();
     if (!formDate) return;
 
-    if (editId) {
-      await supabase
-        .from("date_nights")
-        .update({ date: formDate, note: formNote.trim() })
-        .eq("id", editId);
-    } else {
-      const id = crypto.randomUUID();
-      const createdAt = new Date().toISOString();
-      await supabase.from("date_nights").insert({
-        id,
-        date: formDate,
-        note: formNote.trim(),
-        created_at: createdAt,
-      });
+    if (useLocal) {
+      const current = lsLoad();
+      if (editId) {
+        const updated = current.map((d) =>
+          d.id === editId ? { ...d, date: formDate, note: formNote.trim() } : d
+        );
+        lsSave(updated);
+        setDates(updated.sort((a, b) => b.date.localeCompare(a.date)));
+      } else {
+        const newEntry: DateNight = {
+          id: crypto.randomUUID(),
+          date: formDate,
+          note: formNote.trim(),
+          createdAt: new Date().toISOString(),
+        };
+        const updated = [newEntry, ...current].sort((a, b) => b.date.localeCompare(a.date));
+        lsSave(updated);
+        setDates(updated);
+      }
+      setShowForm(false);
+      setEditId(null);
+      return;
+    }
+
+    try {
+      if (editId) {
+        const { error } = await supabase
+          .from("date_nights")
+          .update({ date: formDate, note: formNote.trim() })
+          .eq("id", editId);
+        if (error) throw error;
+      } else {
+        const id = crypto.randomUUID();
+        const createdAt = new Date().toISOString();
+        const { error } = await supabase.from("date_nights").insert({
+          id,
+          date: formDate,
+          note: formNote.trim(),
+          created_at: createdAt,
+        });
+        if (error) throw error;
+      }
+    } catch {
+      // Fall back to localStorage on error
+      setUseLocal(true);
+      const current = lsLoad();
+      if (editId) {
+        const updated = current.map((d) =>
+          d.id === editId ? { ...d, date: formDate, note: formNote.trim() } : d
+        );
+        lsSave(updated);
+        setDates(updated.sort((a, b) => b.date.localeCompare(a.date)));
+      } else {
+        const newEntry: DateNight = {
+          id: crypto.randomUUID(),
+          date: formDate,
+          note: formNote.trim(),
+          createdAt: new Date().toISOString(),
+        };
+        const updated = [newEntry, ...current].sort((a, b) => b.date.localeCompare(a.date));
+        lsSave(updated);
+        setDates(updated);
+      }
+      setShowForm(false);
+      setEditId(null);
+      return;
     }
     setShowForm(false);
     setEditId(null);
@@ -100,7 +184,22 @@ export default function LastDate() {
   }
 
   async function handleDelete(id: string) {
-    await supabase.from("date_nights").delete().eq("id", id);
+    if (useLocal) {
+      const updated = lsLoad().filter((d) => d.id !== id);
+      lsSave(updated);
+      setDates(updated);
+      return;
+    }
+    try {
+      const { error } = await supabase.from("date_nights").delete().eq("id", id);
+      if (error) throw error;
+    } catch {
+      setUseLocal(true);
+      const updated = lsLoad().filter((d) => d.id !== id);
+      lsSave(updated);
+      setDates(updated);
+      return;
+    }
     fetchDates();
   }
 
@@ -115,7 +214,14 @@ export default function LastDate() {
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="section-title">💑 Date Night</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="section-title">💑 Date Night</h2>
+          {useLocal && (
+            <span className="text-xs font-semibold text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-0.5">
+              local only
+            </span>
+          )}
+        </div>
         <button
           onClick={showForm ? cancelForm : openAddForm}
           className="text-xs font-semibold text-blue-600"
@@ -169,7 +275,7 @@ export default function LastDate() {
               </p>
               {latest.note && (
                 <p className="text-xs text-slate-500 mt-1 italic">
-                  "{latest.note}"
+                  &ldquo;{latest.note}&rdquo;
                 </p>
               )}
             </div>
@@ -233,7 +339,7 @@ export default function LastDate() {
                     </p>
                     {d.note && (
                       <p className="text-xs text-slate-400 italic mt-0.5">
-                        "{d.note}"
+                        &ldquo;{d.note}&rdquo;
                       </p>
                     )}
                     <p className="text-xs text-slate-300 mt-0.5">

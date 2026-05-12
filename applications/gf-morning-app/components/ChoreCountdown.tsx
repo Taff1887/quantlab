@@ -4,11 +4,17 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { Chore, ChoreStatus } from "../types";
 
-const DEFAULT_CHORES = [
-  { id: "sheets", name: "🛏️ Bed sheets", interval_days: 14 },
-  { id: "clothes", name: "👕 General clothes", interval_days: 14 },
-  { id: "towels", name: "🏊 Towels", interval_days: 7 },
+const LS_KEY = "chores_local";
+
+const DEFAULT_CHORES: { id: string; name: string; interval_days: number }[] = [
+  { id: "sheets",    name: "🛏️ Bed sheets",      interval_days: 14 },
+  { id: "clothes",   name: "👕 General clothes",  interval_days: 7  },
+  { id: "towels",    name: "🏊 Towels",            interval_days: 7  },
+  { id: "groceries", name: "🛒 Groceries",         interval_days: 7  },
+  { id: "meal-prep", name: "🍱 Meal prep",         interval_days: 7  },
 ];
+
+// ─── Converters ───────────────────────────────────────────────────────────────
 
 function rowToChore(row: Record<string, unknown>): Chore {
   return {
@@ -19,10 +25,56 @@ function rowToChore(row: Record<string, unknown>): Chore {
   };
 }
 
-/** Find the first Sunday that is at least intervalDays after completedDate */
+function choreToRow(c: Chore): Record<string, unknown> {
+  return {
+    id: c.id,
+    name: c.name,
+    interval_days: c.intervalDays,
+    last_completed: c.lastCompleted,
+  };
+}
+
+// ─── localStorage helpers ─────────────────────────────────────────────────────
+
+function lsLoad(): Chore[] {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    return raw ? (JSON.parse(raw) as Chore[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function lsSave(chores: Chore[]) {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(chores));
+  } catch {
+    /* ignore */
+  }
+}
+
+function lsSeedDefaults(chores: Chore[]): Chore[] {
+  const existingIds = new Set(chores.map((c) => c.id));
+  const seeded = [...chores];
+  for (const def of DEFAULT_CHORES) {
+    if (!existingIds.has(def.id)) {
+      seeded.push({
+        id: def.id,
+        name: def.name,
+        intervalDays: def.interval_days,
+        lastCompleted: null,
+      });
+    }
+  }
+  return seeded;
+}
+
+// ─── Status helpers ───────────────────────────────────────────────────────────
+
+/** First Sunday that is at least intervalDays after completedDate */
 function nextSundayAfterInterval(completedDate: Date, intervalDays: number): Date {
   const minDate = new Date(completedDate.getTime() + intervalDays * 86_400_000);
-  const dow = minDate.getDay(); // 0 = Sunday
+  const dow = minDate.getDay();
   const daysUntilSunday = dow === 0 ? 0 : 7 - dow;
   return new Date(minDate.getTime() + daysUntilSunday * 86_400_000);
 }
@@ -38,7 +90,6 @@ function choreStatus(chore: Chore): {
   const completed = new Date(chore.lastCompleted);
   const nextDue = nextSundayAfterInterval(completed, chore.intervalDays);
 
-  // Compare dates at day granularity using local midnight
   const now = new Date();
   const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const nextDueMidnight = new Date(nextDue.getFullYear(), nextDue.getMonth(), nextDue.getDate());
@@ -79,9 +130,12 @@ function todayStr() {
   return new Date().toISOString().split("T")[0];
 }
 
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export default function ChoreCountdown() {
   const [chores, setChores] = useState<Chore[]>([]);
   const [loading, setLoading] = useState(true);
+  const [useLocal, setUseLocal] = useState(false);
 
   // Add form
   const [showAdd, setShowAdd] = useState(false);
@@ -98,18 +152,52 @@ export default function ChoreCountdown() {
   const [doneOnId, setDoneOnId] = useState<string | null>(null);
   const [doneOnDate, setDoneOnDate] = useState(todayStr());
 
-  async function fetchChores() {
-    const { data } = await supabase.from("chores").select("*");
-    const rows = (data ?? []) as Record<string, unknown>[];
+  // ─── syncDefaults: upsert missing defaults AND fix wrong intervals ──────────
 
-    if (rows.length === 0) {
-      await supabase.from("chores").insert(
-        DEFAULT_CHORES.map((c) => ({ ...c, last_completed: null }))
-      );
-      const { data: fresh } = await supabase.from("chores").select("*");
+  async function syncDefaults(existingRows: Record<string, unknown>[]) {
+    const existingMap = new Map(existingRows.map((r) => [r.id as string, r]));
+
+    for (const def of DEFAULT_CHORES) {
+      const existing = existingMap.get(def.id);
+      if (!existing) {
+        // Insert missing default
+        await supabase.from("chores").insert({
+          id: def.id,
+          name: def.name,
+          interval_days: def.interval_days,
+          last_completed: null,
+        });
+      } else if ((existing.interval_days as number) !== def.interval_days) {
+        // Fix wrong interval (e.g. clothes 14→7)
+        await supabase
+          .from("chores")
+          .update({ interval_days: def.interval_days })
+          .eq("id", def.id);
+      }
+    }
+  }
+
+  // ─── fetchChores ────────────────────────────────────────────────────────────
+
+  async function fetchChores() {
+    try {
+      const { data, error } = await supabase.from("chores").select("*");
+      if (error) throw error;
+
+      const rows = (data ?? []) as Record<string, unknown>[];
+      await syncDefaults(rows);
+
+      // Re-fetch after sync to pick up any new rows / fixed intervals
+      const { data: fresh, error: freshErr } = await supabase.from("chores").select("*");
+      if (freshErr) throw freshErr;
+
       setChores(((fresh ?? []) as Record<string, unknown>[]).map(rowToChore));
-    } else {
-      setChores(rows.map(rowToChore));
+      setUseLocal(false);
+    } catch {
+      setUseLocal(true);
+      const local = lsSeedDefaults(lsLoad());
+      lsSave(local);
+      setChores(local);
     }
     setLoading(false);
   }
@@ -118,59 +206,81 @@ export default function ChoreCountdown() {
     fetchChores();
   }, []);
 
-  /** Mark done right now */
+  // ─── Actions ────────────────────────────────────────────────────────────────
+
   async function markDone(id: string) {
-    await supabase
-      .from("chores")
-      .update({ last_completed: new Date().toISOString() })
-      .eq("id", id);
-    fetchChores();
+    const iso = new Date().toISOString();
+    if (useLocal) {
+      const updated = chores.map((c) =>
+        c.id === id ? { ...c, lastCompleted: iso } : c
+      );
+      lsSave(updated);
+      setChores(updated);
+    } else {
+      await supabase.from("chores").update({ last_completed: iso }).eq("id", id);
+      fetchChores();
+    }
   }
 
-  /** Mark done on a specific date (backdating) */
   async function markDoneOn(id: string, dateStr: string) {
-    // Store as ISO string at noon local time so timezone doesn't flip the day
     const [y, m, d] = dateStr.split("-").map(Number);
-    const dt = new Date(y, m - 1, d, 12, 0, 0);
-    await supabase
-      .from("chores")
-      .update({ last_completed: dt.toISOString() })
-      .eq("id", id);
+    const iso = new Date(y, m - 1, d, 12, 0, 0).toISOString();
+    if (useLocal) {
+      const updated = chores.map((c) =>
+        c.id === id ? { ...c, lastCompleted: iso } : c
+      );
+      lsSave(updated);
+      setChores(updated);
+    } else {
+      await supabase.from("chores").update({ last_completed: iso }).eq("id", id);
+      fetchChores();
+    }
     setDoneOnId(null);
-    fetchChores();
   }
 
   async function removeChore(id: string) {
-    await supabase.from("chores").delete().eq("id", id);
-    fetchChores();
+    if (useLocal) {
+      const updated = chores.filter((c) => c.id !== id);
+      lsSave(updated);
+      setChores(updated);
+    } else {
+      await supabase.from("chores").delete().eq("id", id);
+      fetchChores();
+    }
   }
 
   async function handleAdd() {
     if (!newName.trim()) return;
     const id = crypto.randomUUID();
-    await supabase.from("chores").insert({
+    const newChore: Chore = {
       id,
       name: newName.trim(),
-      interval_days: newInterval,
-      last_completed: null,
-    });
+      intervalDays: newInterval,
+      lastCompleted: null,
+    };
+    if (useLocal) {
+      const updated = [...chores, newChore];
+      lsSave(updated);
+      setChores(updated);
+    } else {
+      await supabase.from("chores").insert(choreToRow(newChore));
+      fetchChores();
+    }
     setNewName("");
     setNewInterval(7);
     setShowAdd(false);
-    fetchChores();
   }
 
   function openEdit(chore: Chore) {
     setEditId(chore.id);
     setEditName(chore.name);
     setEditInterval(chore.intervalDays);
-    // Convert stored ISO to YYYY-MM-DD for date input
     if (chore.lastCompleted) {
       const d = new Date(chore.lastCompleted);
       const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const mo = String(d.getMonth() + 1).padStart(2, "0");
       const day = String(d.getDate()).padStart(2, "0");
-      setEditLastCompleted(`${y}-${m}-${day}`);
+      setEditLastCompleted(`${y}-${mo}-${day}`);
     } else {
       setEditLastCompleted("");
     }
@@ -183,17 +293,34 @@ export default function ChoreCountdown() {
       const [y, m, d] = editLastCompleted.split("-").map(Number);
       lastCompletedIso = new Date(y, m - 1, d, 12, 0, 0).toISOString();
     }
-    await supabase
-      .from("chores")
-      .update({
-        name: editName.trim(),
-        interval_days: editInterval,
-        ...(editLastCompleted ? { last_completed: lastCompletedIso } : {}),
-      })
-      .eq("id", id);
+    if (useLocal) {
+      const updated = chores.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              name: editName.trim(),
+              intervalDays: editInterval,
+              ...(editLastCompleted ? { lastCompleted: lastCompletedIso } : {}),
+            }
+          : c
+      );
+      lsSave(updated);
+      setChores(updated);
+    } else {
+      await supabase
+        .from("chores")
+        .update({
+          name: editName.trim(),
+          interval_days: editInterval,
+          ...(editLastCompleted ? { last_completed: lastCompletedIso } : {}),
+        })
+        .eq("id", id);
+      fetchChores();
+    }
     setEditId(null);
-    fetchChores();
   }
+
+  // ─── Render ─────────────────────────────────────────────────────────────────
 
   if (loading) {
     return <div className="card animate-pulse h-48" />;
@@ -202,7 +329,14 @@ export default function ChoreCountdown() {
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="section-title">🧹 Chore Countdowns</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="section-title">🧹 Chore Countdowns</h2>
+          {useLocal && (
+            <span className="text-xs font-semibold text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-0.5">
+              local only
+            </span>
+          )}
+        </div>
         <button
           onClick={() => setShowAdd((v) => !v)}
           className="text-xs font-semibold text-blue-600"
@@ -400,7 +534,9 @@ export default function ChoreCountdown() {
             />
             <span className="text-xs text-slate-500">days</span>
           </div>
-          <p className="text-xs text-slate-400">Next due will always be a Sunday, at least this many days away.</p>
+          <p className="text-xs text-slate-400">
+            Next due will always be a Sunday, at least this many days away.
+          </p>
           <button onClick={handleAdd} className="btn-primary w-full">
             Add Chore
           </button>
