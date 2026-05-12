@@ -58,7 +58,18 @@ function parseForecast(mosman: any, cbd: any): DayForecast[] {
 
     const base = i * 24;
     const morningHours = [7, 8];
-    const eveningHours = [17, 18, 19, 20];
+    const eveningHours = [18, 19, 20];
+
+    // Peak hour — find the hour (0-23) with the highest avg temperature
+    let peakHour = 14;
+    let peakTemp = -Infinity;
+    for (let h = 0; h < 24; h++) {
+      const t = avgTwo(
+        mosman.hourly.temperature_2m[base + h] ?? 0,
+        cbd.hourly.temperature_2m[base + h] ?? 0
+      );
+      if (t > peakTemp) { peakTemp = t; peakHour = h; }
+    }
 
     // Average hourly temps across both locations
     const morningTemp = avgTwo(
@@ -95,6 +106,7 @@ function parseForecast(mosman: any, cbd: any): DayForecast[] {
       eveningTemp,
       morningRainChance,
       eveningRainChance,
+      dailyPeakHour: peakHour,
     });
   }
 
@@ -138,6 +150,7 @@ const FALLBACK: DayForecast[] = (() => {
       eveningTemp: 18,
       morningRainChance: 20,
       eveningRainChance: 30,
+      dailyPeakHour: 14,
     };
   });
 })();
@@ -162,8 +175,8 @@ export function getUmbrellaRec(morningRain: number, eveningRain: number): Umbrel
 }
 
 export const CLOTHING_LABEL: Record<ClothingRec, string> = {
-  "very-cold": "Very cold out — bring 2 jumpers pookie, can't be having you sick 🧥🧥",
-  cold:        "Chilly — wear a jumper 🧥",
+  "very-cold": "It's freezing pookie, bring 2 jumpers so you don't catch a cold 🥶🧥🧥",
+  cold:        "Kinda cold pookie, bring a jumper 🥶🧥",
   mild:        "Mild — a light layer should do 👕",
   warm:        "Warm day — lighter clothes are fine ☀️",
   hot:         "Hot one — very light/cool clothes 🌞",

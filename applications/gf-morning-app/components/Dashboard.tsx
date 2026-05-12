@@ -14,6 +14,7 @@ import LifeAdmin from "./LifeAdmin";
 import GymTracker from "./GymTracker";
 import LastDate from "./LastDate";
 import TaffyRating from "./TaffyRating";
+import CalendarCard from "./CalendarCard";
 
 export default function Dashboard() {
   return (
@@ -37,6 +38,7 @@ export default function Dashboard() {
         <ExcelFunctionCard />
         <ShortcutQuiz />
         <ChoreCountdown />
+        <CalendarCard />
         <LifeAdmin />
         <GymTracker />
         <LastDate />

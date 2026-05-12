@@ -4,6 +4,18 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import type { Task } from "../types";
 
+const LS_KEY = "tasks_local";
+
+function lsLoad(): Task[] {
+  try {
+    return JSON.parse(localStorage.getItem(LS_KEY) ?? "[]") as Task[];
+  } catch { return []; }
+}
+
+function lsSave(tasks: Task[]) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(tasks)); } catch { /* ignore */ }
+}
+
 function isOverdue(dueDate?: string) {
   if (!dueDate) return false;
   return new Date(dueDate + "T23:59:59").getTime() < Date.now();
@@ -36,6 +48,7 @@ function rowToTask(row: Record<string, unknown>): Task {
 export default function LifeAdmin() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [useLocal, setUseLocal] = useState(false);
   const [title, setTitle] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [showCompleted, setShowCompleted] = useState(false);
@@ -49,11 +62,18 @@ export default function LifeAdmin() {
 
   async function fetchTasks() {
     setLoading(true);
-    const { data } = await supabase
-      .from("tasks")
-      .select("*")
-      .order("created_at", { ascending: true });
-    setTasks((data ?? []).map(rowToTask));
+    try {
+      const { data, error } = await supabase
+        .from("tasks")
+        .select("*")
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      setTasks((data ?? []).map(rowToTask));
+      setUseLocal(false);
+    } catch {
+      setUseLocal(true);
+      setTasks(lsLoad());
+    }
     setLoading(false);
   }
 
@@ -66,27 +86,74 @@ export default function LifeAdmin() {
     if (!trimmed) return;
     const id = crypto.randomUUID();
     const createdAt = new Date().toISOString();
-    await supabase.from("tasks").insert({
+    const newTask: Task = {
       id,
       title: trimmed,
       completed: false,
-      due_date: dueDate || null,
-      created_at: createdAt,
-    });
+      dueDate: dueDate || undefined,
+      createdAt,
+    };
+
+    if (useLocal) {
+      const updated = [...tasks, newTask];
+      setTasks(updated);
+      lsSave(updated);
+    } else {
+      try {
+        await supabase.from("tasks").insert({
+          id,
+          title: trimmed,
+          completed: false,
+          due_date: dueDate || null,
+          created_at: createdAt,
+        });
+        fetchTasks();
+      } catch {
+        setUseLocal(true);
+        const updated = [...tasks, newTask];
+        setTasks(updated);
+        lsSave(updated);
+      }
+    }
     setTitle("");
     setDueDate("");
     inputRef.current?.focus();
-    fetchTasks();
   }
 
   async function toggleTask(id: string, current: boolean) {
-    await supabase.from("tasks").update({ completed: !current }).eq("id", id);
-    fetchTasks();
+    if (useLocal) {
+      const updated = tasks.map((t) => t.id === id ? { ...t, completed: !current } : t);
+      setTasks(updated);
+      lsSave(updated);
+    } else {
+      try {
+        await supabase.from("tasks").update({ completed: !current }).eq("id", id);
+        fetchTasks();
+      } catch {
+        setUseLocal(true);
+        const updated = tasks.map((t) => t.id === id ? { ...t, completed: !current } : t);
+        setTasks(updated);
+        lsSave(updated);
+      }
+    }
   }
 
   async function deleteTask(id: string) {
-    await supabase.from("tasks").delete().eq("id", id);
-    fetchTasks();
+    if (useLocal) {
+      const updated = tasks.filter((t) => t.id !== id);
+      setTasks(updated);
+      lsSave(updated);
+    } else {
+      try {
+        await supabase.from("tasks").delete().eq("id", id);
+        fetchTasks();
+      } catch {
+        setUseLocal(true);
+        const updated = tasks.filter((t) => t.id !== id);
+        setTasks(updated);
+        lsSave(updated);
+      }
+    }
   }
 
   function openEdit(task: Task) {
@@ -98,12 +165,30 @@ export default function LifeAdmin() {
   async function saveEdit(id: string) {
     const trimmed = editTitle.trim();
     if (!trimmed) return;
-    await supabase
-      .from("tasks")
-      .update({ title: trimmed, due_date: editDue || null })
-      .eq("id", id);
+
+    if (useLocal) {
+      const updated = tasks.map((t) =>
+        t.id === id ? { ...t, title: trimmed, dueDate: editDue || undefined } : t
+      );
+      setTasks(updated);
+      lsSave(updated);
+    } else {
+      try {
+        await supabase
+          .from("tasks")
+          .update({ title: trimmed, due_date: editDue || null })
+          .eq("id", id);
+        fetchTasks();
+      } catch {
+        setUseLocal(true);
+        const updated = tasks.map((t) =>
+          t.id === id ? { ...t, title: trimmed, dueDate: editDue || undefined } : t
+        );
+        setTasks(updated);
+        lsSave(updated);
+      }
+    }
     setEditId(null);
-    fetchTasks();
   }
 
   if (loading) {
@@ -117,11 +202,18 @@ export default function LifeAdmin() {
     <div className="card">
       <div className="flex items-center justify-between mb-4">
         <h2 className="section-title">✅ Life Admin</h2>
-        {active.length > 0 && (
-          <span className="text-xs font-bold bg-blue-50 text-blue-600 px-2.5 py-1 rounded-full">
-            {active.length} active
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {useLocal && (
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-600">
+              local only
+            </span>
+          )}
+          {active.length > 0 && (
+            <span className="text-xs font-bold bg-blue-50 text-blue-600 px-2.5 py-1 rounded-full">
+              {active.length} active
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Add task row */}

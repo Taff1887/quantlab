@@ -12,6 +12,7 @@ export interface DayForecast {
   eveningTemp: number;
   morningRainChance: number;
   eveningRainChance: number;
+  dailyPeakHour?: number;
 }
 
 export interface WeatherData {

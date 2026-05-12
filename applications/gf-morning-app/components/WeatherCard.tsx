@@ -9,12 +9,30 @@ import {
   CONDITION_EMOJI,
 } from "../lib/weatherService";
 
+function formatPeakHour(h?: number): string {
+  if (h === undefined) return "";
+  const period = h < 12 ? "am" : "pm";
+  const display = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `peaks at ${display}${period}`;
+}
+
 export default function WeatherCard() {
   const [forecast, setForecast] = useState<DayForecast[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [nowHour, setNowHour] = useState(0);
 
   useEffect(() => {
     fetchForecast().then(setForecast);
+    // Get current Sydney hour for morning label logic
+    const sydneyHour = parseInt(
+      new Date().toLocaleTimeString("en-AU", {
+        timeZone: "Australia/Sydney",
+        hour: "2-digit",
+        hour12: false,
+      }),
+      10
+    );
+    setNowHour(sydneyHour);
   }, []);
 
   if (forecast.length === 0) {
@@ -25,6 +43,10 @@ export default function WeatherCard() {
   const clothing = getClothingRec(day.morningTemp, day.eveningTemp);
   const umbrella = getUmbrellaRec(day.morningRainChance, day.eveningRainChance);
   const emoji = CONDITION_EMOJI[day.condition] ?? "🌤️";
+
+  // If it's today and past 9am, label morning as historical
+  const isToday = selectedIdx === 0;
+  const morningLabel = isToday && nowHour >= 9 ? "🌅 This morning (7–9am)" : "🌅 Morning (7–9am)";
 
   return (
     <div className="card">
@@ -55,12 +77,20 @@ export default function WeatherCard() {
       <div className="flex items-center gap-4 mb-5">
         <span className="text-6xl">{emoji}</span>
         <div>
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-0.5">
+            Tops of
+          </p>
           <p className="text-5xl font-bold text-slate-800 leading-none">
             {day.temperature}°
           </p>
           <p className="text-slate-400 text-sm mt-1">
             Feels like {day.feelsLike}° · {day.condition}
           </p>
+          {day.dailyPeakHour !== undefined && (
+            <p className="text-xs text-slate-400 mt-0.5">
+              🌡️ {formatPeakHour(day.dailyPeakHour)}
+            </p>
+          )}
           {selectedIdx > 0 && (
             <p className="text-xs font-semibold text-blue-500 mt-0.5">{day.label}</p>
           )}
@@ -70,14 +100,14 @@ export default function WeatherCard() {
       {/* Morning / Evening breakdown */}
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="bg-slate-50 rounded-2xl p-3">
-          <p className="text-xs font-semibold text-slate-500 mb-2">🌅 Morning (7–9am)</p>
+          <p className="text-xs font-semibold text-slate-500 mb-2">{morningLabel}</p>
           <p className="text-2xl font-bold text-slate-800">{day.morningTemp}°</p>
           <p className={`text-xs font-semibold mt-1 ${day.morningRainChance > 40 ? "text-blue-500" : "text-slate-400"}`}>
             💧 {day.morningRainChance}% rain
           </p>
         </div>
         <div className="bg-slate-50 rounded-2xl p-3">
-          <p className="text-xs font-semibold text-slate-500 mb-2">🌆 Evening (5–8pm)</p>
+          <p className="text-xs font-semibold text-slate-500 mb-2">🌆 Evening (6–8pm)</p>
           <p className="text-2xl font-bold text-slate-800">{day.eveningTemp}°</p>
           <p className={`text-xs font-semibold mt-1 ${day.eveningRainChance > 40 ? "text-blue-500" : "text-slate-400"}`}>
             💧 {day.eveningRainChance}% rain
@@ -94,10 +124,10 @@ export default function WeatherCard() {
               : "bg-emerald-50 text-emerald-700"
           }`}
         >
-          <span className="text-lg">{umbrella === "bring" ? "☂️" : "✅"}</span>
+          <span className="text-lg">{umbrella === "bring" ? "☔" : "✅"}</span>
           <span>
             {umbrella === "bring"
-              ? `Bring your umbrella${selectedIdx > 0 ? ` on ${day.label}` : ""}`
+              ? `Don't get wet pookie, bring an umbrella ☔${selectedIdx > 0 ? ` on ${day.label}` : ""}`
               : "No umbrella needed"}
           </span>
         </div>
