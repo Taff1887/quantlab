@@ -64,19 +64,13 @@ const FERRY_WHARVES = [
 ];
 
 // ── Bus stops — Bradleys Head Rd only ─────────────────────────────────────────
-// B100: Bradleys Head Rd → Wynyard Station
+// B100: Bradleys Head Rd at Whiting Beach Rd, Mosman (Stop 208858)
 
 const BUS_STOPS = [
   {
-    // Try several TfNSW stop name variants — Stop Finder picks the best match
-    searchNames:     [
-      "Bradleys Head Rd opp Thompson St",
-      "Bradleys Head Rd after Thompson St",
-      "Bradleys Head Rd Mosman",
-      "Bradleys Head Road Mosman",
-    ],
-    stopKey:         "bus-b100-thompson",
-    stopName:        "Bradleys Head Rd (Thompson St)",
+    stopId:          "208858",   // TfNSW stop ID — skip Stop Finder entirely
+    stopKey:         "bus-b100-whiting",
+    stopName:        "Bradleys Head Rd at Whiting Beach Rd",
     routeFilter:     ["B100"],   // case-insensitive match applied in isInboundBus
     walkMins:        10,
     walkDistanceM:   700,
@@ -290,14 +284,8 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
 // ── Fetch bus stop ────────────────────────────────────────────────────────────
 
 async function fetchBusStop(stop: typeof BUS_STOPS[0], apiKey: string) {
-  // Try each search name variant until we find a valid stop
-  let stopId: string | null = null;
-  for (const name of stop.searchNames) {
-    stopId = await resolveStopId(name, apiKey, true);
-    if (stopId) { console.log(`BUS ${stop.stopKey}: resolved via "${name}" → ${stopId}`); break; }
-    console.warn(`BUS ${stop.stopKey}: no match for "${name}", trying next...`);
-  }
-  if (!stopId) throw new Error(`No stop found for ${stop.stopKey} (tried all name variants)`);
+  const stopId = stop.stopId;
+  console.log(`BUS ${stop.stopKey}: using hardcoded stop ID ${stopId}`);
 
   const events = await getDepartures(stopId, apiKey);
   const now = nowMinsSydney();

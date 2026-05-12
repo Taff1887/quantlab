@@ -26,7 +26,7 @@ export default function Dashboard() {
       <div className="max-w-lg mx-auto px-4 pt-3">
         <SnoozeTracker />
       </div>
-      <div className="max-w-lg mx-auto pb-2">
+      <div className="max-w-lg mx-auto px-4 mt-4">
         <NewsCard />
       </div>
 

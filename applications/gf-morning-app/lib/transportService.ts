@@ -139,7 +139,7 @@ function buildScheduleOptions(bh: number, bm: number): TransportOption[] {
     {
       id: "bus-b100",
       mode: "bus",
-      stopName: "Bradleys Head Rd (Thompson St)",
+      stopName: "Bradleys Head Rd at Whiting Beach Rd",
       walkMins: 10,
       walkDistanceM: 700,
       driveMins: 3,

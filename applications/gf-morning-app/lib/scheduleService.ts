@@ -145,7 +145,7 @@ const ROUTES: RouteConfig[] = [
     id: "bus-b100",
     mode: "bus",
     routeName: "B100",
-    stopName: "Bradleys Head Rd (Thompson St)",
+    stopName: "Bradleys Head Rd at Whiting Beach Rd",
     walkMins: buffer(10), walkDistanceM: 700,
     driveMins: buffer(3), driveDistanceM: 450,
     transitMins: 34,
