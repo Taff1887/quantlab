@@ -175,13 +175,10 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
   ).join(" | ");
   console.log(`${wharf.wharfKey} [${stopId}]: ${events.length} events. ${sample}`);
 
-  // Keep ferry services (product class 9, F* or CC* prefix) heading inbound to Circular Quay
-  const inbound = events.filter((ev) => {
-    const cls: number   = ev.transportation?.product?.class ?? 0;
-    const route: string = (ev.transportation?.number ?? "").toUpperCase();
-    const isFerry = cls === 9 || route.startsWith("F") || route.startsWith("CC");
-    return isFerry && isInboundToCity(ev);
-  });
+  // The stop is already confirmed as a ferry wharf via Stop Finder, so ALL departures
+  // from this stop are ferry services — no need to filter by product class or route prefix.
+  // Just filter direction: keep only inbound services heading to Circular Quay.
+  const inbound = events.filter((ev) => isInboundToCity(ev));
 
   console.log(`${wharf.wharfKey}: ${inbound.length}/${events.length} kept after ferry+direction filter`);
 
@@ -195,8 +192,8 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
     const officeArrival      = addMins(destinationArrival, OFFICE_WALK_MINS);
     const totalMins          = wharf.walkMins + wharf.crossingMins + OFFICE_WALK_MINS;
 
-    // Clean route name — just the number, not the verbose TfNSW direction description
-    const routeNum = (ev.transportation?.number ?? "").toUpperCase();
+    // Clean route name — route number only (e.g. "F9", "CCTZ", "F6")
+    const routeNum = (ev.transportation?.number ?? "").trim();
     const routeName = routeNum ? `${routeNum} to Circular Quay` : "Ferry to Circular Quay";
 
     trips.push({
