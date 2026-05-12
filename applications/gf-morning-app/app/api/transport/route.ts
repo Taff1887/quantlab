@@ -68,10 +68,16 @@ const FERRY_WHARVES = [
 
 const BUS_STOPS = [
   {
-    searchName:      "Bradleys Head Rd near Thompson St",
+    // Try several TfNSW stop name variants — Stop Finder picks the best match
+    searchNames:     [
+      "Bradleys Head Rd opp Thompson St",
+      "Bradleys Head Rd after Thompson St",
+      "Bradleys Head Rd Mosman",
+      "Bradleys Head Road Mosman",
+    ],
     stopKey:         "bus-b100-thompson",
     stopName:        "Bradleys Head Rd (Thompson St)",
-    routeFilter:     ["B100"],
+    routeFilter:     ["B100"],   // case-insensitive match applied in isInboundBus
     walkMins:        10,
     walkDistanceM:   700,
     driveMins:       3,
@@ -133,9 +139,9 @@ function isInboundFerry(ev: any): boolean {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isInboundBus(ev: any, routeFilter: string[]): boolean {
-  const routeNum = (ev.transportation?.number ?? "").trim();
-  // Must be one of our allowed routes
-  if (routeFilter.length > 0 && !routeFilter.includes(routeNum)) return false;
+  const routeNum = (ev.transportation?.number ?? "").trim().toUpperCase();
+  // Must be one of our allowed routes (case-insensitive)
+  if (routeFilter.length > 0 && !routeFilter.map((r) => r.toUpperCase()).includes(routeNum)) return false;
 
   const desc    = (ev.transportation?.description ?? "").toLowerCase();
   const dest    = (ev.transportation?.destination?.name ?? "").toLowerCase();
@@ -284,8 +290,14 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
 // ── Fetch bus stop ────────────────────────────────────────────────────────────
 
 async function fetchBusStop(stop: typeof BUS_STOPS[0], apiKey: string) {
-  const stopId = await resolveStopId(stop.searchName, apiKey, true);
-  if (!stopId) throw new Error(`No stop found for ${stop.stopKey}`);
+  // Try each search name variant until we find a valid stop
+  let stopId: string | null = null;
+  for (const name of stop.searchNames) {
+    stopId = await resolveStopId(name, apiKey, true);
+    if (stopId) { console.log(`BUS ${stop.stopKey}: resolved via "${name}" → ${stopId}`); break; }
+    console.warn(`BUS ${stop.stopKey}: no match for "${name}", trying next...`);
+  }
+  if (!stopId) throw new Error(`No stop found for ${stop.stopKey} (tried all name variants)`);
 
   const events = await getDepartures(stopId, apiKey);
   const now = nowMinsSydney();
