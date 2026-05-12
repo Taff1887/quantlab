@@ -22,6 +22,16 @@ function timeToMins(t: string) {
   return h * 60 + m;
 }
 
+function nowSydneyMins(): number {
+  const t = new Date().toLocaleTimeString("en-AU", {
+    timeZone: "Australia/Sydney",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return timeToMins(t);
+}
+
 function formatDist(m: number): string {
   return m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${m}m`;
 }
@@ -35,6 +45,7 @@ const SORT_LABELS: Record<SortKey, string> = {
 export default function TransportCard() {
   const [options, setOptions] = useState<TransportOption[]>([]);
   const [isRealtime, setIsRealtime] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [mode, setMode] = useState<PrimaryMode>("all");
   const [selectedWharves, setSelectedWharves] = useState<WharfName[]>([
     "Taronga Zoo", "South Mosman", "Mosman Bay", "Cremorne Point",
@@ -43,11 +54,18 @@ export default function TransportCard() {
   const [sort, setSort] = useState<SortKey>("departure");
   const [expanded, setExpanded] = useState(false);
 
-  useEffect(() => {
+  function refresh() {
     fetchTransportOptions().then(({ options, isRealtime }) => {
       setOptions(options);
       setIsRealtime(isRealtime);
+      setLastUpdated(new Date());
     });
+  }
+
+  useEffect(() => {
+    refresh();
+    const interval = setInterval(refresh, 60_000); // refresh every minute
+    return () => clearInterval(interval);
   }, []);
 
   // Reset expanded when filters change
@@ -67,7 +85,10 @@ export default function TransportCard() {
     setExpanded(false);
   }
 
+  const nowMins = nowSydneyMins();
   const filtered = options.filter((o) => {
+    // Drop departures that have already left (allow 1 min grace)
+    if (timeToMins(o.departureTime) < nowMins - 1) return false;
     if (mode === "ferry") {
       if (o.mode !== "ferry") return false;
       return selectedWharves.length === 0 || selectedWharves.includes(o.wharf as WharfName);
@@ -95,9 +116,16 @@ export default function TransportCard() {
       <div className="mb-4">
         <div className="flex items-center justify-between">
           <h2 className="section-title">Commute</h2>
-          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${isRealtime ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400"}`}>
-            {isRealtime ? "🟢 Live" : "Schedule"}
-          </span>
+          <div className="flex items-center gap-2">
+            {lastUpdated && (
+              <span className="text-[10px] text-slate-300">
+                {lastUpdated.toLocaleTimeString("en-AU", { timeZone: "Australia/Sydney", hour: "2-digit", minute: "2-digit", hour12: false })}
+              </span>
+            )}
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${isRealtime ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400"}`}>
+              {isRealtime ? "🟢 Live" : "Schedule"}
+            </span>
+          </div>
         </div>
         <p className="text-xs text-slate-400 mt-0.5">
           1 Rickard Ave, Mosman → 1 Farrer Place, Sydney
@@ -231,7 +259,7 @@ export default function TransportCard() {
               <div className="grid grid-cols-3 gap-0 px-4 py-3">
                 {[
                   { label: "Departs", value: opt.departureTime },
-                  { label: "Arrives", value: opt.arrivalTime },
+                  { label: opt.mode === "ferry" ? "→ Circ. Quay" : "→ Wynyard", value: opt.arrivalTime },
                   { label: "Total", value: `${opt.totalMins} min` },
                 ].map(({ label, value }) => (
                   <div key={label} className="text-center">

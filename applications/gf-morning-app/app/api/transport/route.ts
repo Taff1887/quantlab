@@ -2,7 +2,7 @@
 // Sign up free at https://opendata.transport.nsw.gov.au/
 // Add API key to Vercel: TFNSW_API_KEY=your_key_here
 
-export const revalidate = 60;
+export const revalidate = 30;
 
 const TFNSW_BASE = "https://api.transport.nsw.gov.au/v1/tp/departure_mon";
 

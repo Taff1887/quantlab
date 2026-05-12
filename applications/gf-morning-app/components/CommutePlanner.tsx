@@ -128,17 +128,22 @@ export default function CommutePlanner() {
   const [isLive, setIsLive] = useState(false);
   const [liveTrips, setLiveTrips] = useState<ScheduleTrip[]>([]);
 
-  // Fetch live trips once on mount — used if TFNSW_API_KEY is set
+  // Fetch live trips and refresh every minute
   useEffect(() => {
-    fetch("/api/transport")
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => {
-        if (data?.trips && data.trips.length > 0) {
-          setLiveTrips(data.trips as ScheduleTrip[]);
-          setIsLive(data.isRealtime ?? false);
-        }
-      })
-      .catch(() => { /* fall through to static schedule */ });
+    function fetchLive() {
+      fetch("/api/transport")
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => {
+          if (data?.trips && data.trips.length > 0) {
+            setLiveTrips(data.trips as ScheduleTrip[]);
+            setIsLive(data.isRealtime ?? false);
+          }
+        })
+        .catch(() => { /* fall through to static schedule */ });
+    }
+    fetchLive();
+    const interval = setInterval(fetchLive, 60_000);
+    return () => clearInterval(interval);
   }, []);
 
   const allTrips = useMemo(
