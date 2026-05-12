@@ -6,12 +6,53 @@ export const revalidate = 30;
 const DEP_MON = "https://api.transport.nsw.gov.au/v1/tp/departure_mon";
 const SYD_TZ = "Australia/Sydney";
 
+// Home address — only used for drive-time calculations
+const HOME_ADDRESS = "2 Rickard Ave, Mosman NSW 2088, Australia";
+
 // Ferry wharves — search TfNSW by name, keep only product class 9 (ferry)
 const FERRY_WHARVES = [
-  { searchName: "Taronga Zoo Wharf",    wharfKey: "Taronga Zoo",    walkMins: 10, walkDistanceM: 700,  driveMins: 4, driveDistanceM: 500,  crossingMins: 12 },
-  { searchName: "South Mosman Wharf",   wharfKey: "South Mosman",   walkMins: 18, walkDistanceM: 1200, driveMins: 6, driveDistanceM: 900,  crossingMins: 25 },
-  { searchName: "Mosman Bay Wharf",     wharfKey: "Mosman Bay",     walkMins: 22, walkDistanceM: 1550, driveMins: 7, driveDistanceM: 1100, crossingMins: 22 },
-  { searchName: "Cremorne Point Wharf", wharfKey: "Cremorne Point", walkMins: 25, walkDistanceM: 1700, driveMins: 8, driveDistanceM: 1400, crossingMins: 18 },
+  {
+    searchName:    "Taronga Zoo Wharf",
+    wharfKey:      "Taronga Zoo",
+    walkMins:      10,
+    walkDistanceM: 700,
+    // fallback drive stats (used when no Maps API key)
+    driveMinsBase:    4,
+    driveDistanceM:   500,
+    // Maps API destination string
+    mapsDestination:  "Taronga Zoo Ferry Wharf, Mosman NSW",
+    crossingMins:  12,
+  },
+  {
+    searchName:    "South Mosman Wharf",
+    wharfKey:      "South Mosman",
+    walkMins:      18,
+    walkDistanceM: 1200,
+    driveMinsBase:    6,
+    driveDistanceM:   900,
+    mapsDestination:  "South Mosman Ferry Wharf, Mosman NSW",
+    crossingMins:  25,
+  },
+  {
+    searchName:    "Mosman Bay Wharf",
+    wharfKey:      "Mosman Bay",
+    walkMins:      22,
+    walkDistanceM: 1550,
+    driveMinsBase:    7,
+    driveDistanceM:   1100,
+    mapsDestination:  "Mosman Bay Ferry Wharf, Mosman NSW",
+    crossingMins:  22,
+  },
+  {
+    searchName:    "Cremorne Point Wharf",
+    wharfKey:      "Cremorne Point",
+    walkMins:      25,
+    walkDistanceM: 1700,
+    driveMinsBase:    8,
+    driveDistanceM:   1400,
+    mapsDestination:  "Cremorne Point Ferry Wharf, Cremorne NSW",
+    crossingMins:  18,
+  },
 ];
 
 const OFFICE_WALK_MINS = 3;
@@ -37,7 +78,52 @@ function subMins(hhmm: string, mins: number): string {
   return `${pad(Math.floor(t / 60) % 24)}:${pad(t % 60)}`;
 }
 
-async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
+// ── Google Maps Distance Matrix (real-time traffic) ─────────────────────────
+
+interface DriveResult {
+  driveMins: number;
+  isRealtime: boolean;
+}
+
+async function fetchDriveTimes(mapsKey: string): Promise<Map<string, DriveResult>> {
+  const destinations = FERRY_WHARVES.map((w) => w.mapsDestination).join("|");
+  const url = new URL("https://maps.googleapis.com/maps/api/distancematrix/json");
+  url.searchParams.set("origins",        HOME_ADDRESS);
+  url.searchParams.set("destinations",   destinations);
+  url.searchParams.set("departure_time", "now");
+  url.searchParams.set("traffic_model",  "best_guess");
+  url.searchParams.set("units",          "metric");
+  url.searchParams.set("key",            mapsKey);
+
+  const res = await fetch(url.toString(), { next: { revalidate: 300 } });
+  if (!res.ok) throw new Error(`Maps API ${res.status}`);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data: any = await res.json();
+  const elements: unknown[] = data?.rows?.[0]?.elements ?? [];
+
+  const result = new Map<string, DriveResult>();
+  FERRY_WHARVES.forEach((w, i) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const el: any = elements[i];
+    if (el?.status === "OK") {
+      // duration_in_traffic is present when departure_time=now
+      const secs: number = el.duration_in_traffic?.value ?? el.duration?.value ?? (w.driveMinsBase * 60);
+      result.set(w.wharfKey, { driveMins: Math.ceil(secs / 60), isRealtime: true });
+    } else {
+      result.set(w.wharfKey, { driveMins: w.driveMinsBase, isRealtime: false });
+    }
+  });
+  return result;
+}
+
+// ── TfNSW Departure Monitor ──────────────────────────────────────────────────
+
+async function fetchWharf(
+  wharf: typeof FERRY_WHARVES[0],
+  apiKey: string,
+  driveMap: Map<string, DriveResult>,
+) {
   const url = new URL(DEP_MON);
   url.searchParams.set("outputFormat",          "rapidJSON");
   url.searchParams.set("coordOutputFormat",     "EPSG:4326");
@@ -65,6 +151,10 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
     return cls === 9 || route.toUpperCase().startsWith("F");
   });
 
+  // Resolve drive time — prefer Maps API real-time, fall back to static
+  const driveInfo = driveMap.get(wharf.wharfKey);
+  const driveMins = driveInfo?.driveMins ?? wharf.driveMinsBase;
+
   const trips = [];
   for (const ev of ferryEvents.slice(0, 3)) {
     const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned;
@@ -85,7 +175,7 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
       stopName:          `${wharf.wharfKey} Ferry Wharf`,
       walkMins:          wharf.walkMins,
       walkDistanceM:     wharf.walkDistanceM,
-      driveMins:         wharf.driveMins,
+      driveMins,
       driveDistanceM:    wharf.driveDistanceM,
       departureTime,
       destinationStop:   "Circular Quay",
@@ -93,20 +183,33 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
       officeArrival,
       totalMins,
       leaveByWalking:    subMins(departureTime, wharf.walkMins + 2),
-      leaveByDriving:    subMins(departureTime, wharf.driveMins + 2),
+      leaveByDriving:    subMins(departureTime, driveMins + 2),
       isRealtime:        !!ev.departureTimeEstimated,
+      driveIsRealtime:   driveInfo?.isRealtime ?? false,
     });
   }
   return trips;
 }
 
 export async function GET() {
-  const apiKey = process.env.TFNSW_API_KEY;
+  const apiKey  = process.env.TFNSW_API_KEY;
+  const mapsKey = process.env.GOOGLE_MAPS_API_KEY;
+
   if (!apiKey) return Response.json({ error: "NO_KEY", trips: [] }, { status: 200 });
+
+  // Attempt real-time drive times; if Maps key absent or request fails, use static fallback
+  let driveMap = new Map<string, DriveResult>();
+  if (mapsKey) {
+    try {
+      driveMap = await fetchDriveTimes(mapsKey);
+    } catch (err) {
+      console.warn("Google Maps drive time fetch failed, using static fallback:", err);
+    }
+  }
 
   try {
     const results = await Promise.allSettled(
-      FERRY_WHARVES.map((w) => fetchWharf(w, apiKey))
+      FERRY_WHARVES.map((w) => fetchWharf(w, apiKey, driveMap))
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -118,7 +221,9 @@ export async function GET() {
     // Sort by departure time
     trips.sort((a, b) => a.departureTime.localeCompare(b.departureTime));
 
-    return Response.json({ trips, isRealtime: true });
+    const driveIsRealtime = trips.some((t) => t.driveIsRealtime);
+
+    return Response.json({ trips, isRealtime: true, driveIsRealtime });
   } catch (err) {
     console.error("TfNSW API error:", err);
     return Response.json({ error: "API_ERROR", trips: [] }, { status: 200 });

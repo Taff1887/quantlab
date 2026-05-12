@@ -38,7 +38,7 @@ export function leaveByDriving(departureTime: string, driveMins: number): string
   return subtractMins(departureTime, driveMins + 2);
 }
 
-export async function fetchTransportOptions(): Promise<{ options: TransportOption[]; isRealtime: boolean }> {
+export async function fetchTransportOptions(): Promise<{ options: TransportOption[]; isRealtime: boolean; driveIsRealtime?: boolean }> {
   // Try real-time TfNSW data first
   try {
     const res = await fetch("/api/transport");
@@ -62,14 +62,18 @@ export async function fetchTransportOptions(): Promise<{ options: TransportOptio
           notes: t.isRealtime ? "Real-time" : "Scheduled",
           isBest: false,
         }));
-        return { options, isRealtime: data.isRealtime ?? false };
+        return {
+          options,
+          isRealtime: data.isRealtime ?? false,
+          driveIsRealtime: data.driveIsRealtime ?? false,
+        };
       }
     }
   } catch { /* fall through to schedule */ }
 
   // Fallback: schedule-based estimates
   const [bh, bm] = nowHM();
-  return { options: buildScheduleOptions(bh, bm), isRealtime: false };
+  return { options: buildScheduleOptions(bh, bm), isRealtime: false, driveIsRealtime: false };
 }
 
 function buildScheduleOptions(bh: number, bm: number): TransportOption[] {

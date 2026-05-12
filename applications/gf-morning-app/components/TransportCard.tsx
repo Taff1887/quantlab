@@ -45,6 +45,7 @@ const SORT_LABELS: Record<SortKey, string> = {
 export default function TransportCard() {
   const [options, setOptions] = useState<TransportOption[]>([]);
   const [isRealtime, setIsRealtime] = useState(false);
+  const [driveIsRealtime, setDriveIsRealtime] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [mode, setMode] = useState<PrimaryMode>("all");
   const [selectedWharves, setSelectedWharves] = useState<WharfName[]>([
@@ -55,9 +56,10 @@ export default function TransportCard() {
   const [expanded, setExpanded] = useState(false);
 
   function refresh() {
-    fetchTransportOptions().then(({ options, isRealtime }) => {
+    fetchTransportOptions().then(({ options, isRealtime, driveIsRealtime }) => {
       setOptions(options);
       setIsRealtime(isRealtime);
+      setDriveIsRealtime(driveIsRealtime ?? false);
       setLastUpdated(new Date());
     });
   }
@@ -251,6 +253,7 @@ export default function TransportCard() {
                 <div className="flex items-center gap-1.5 text-xs text-slate-500">
                   <span>🚗</span>
                   <span className="font-semibold text-slate-700">{opt.driveMins} min</span>
+                  {driveIsRealtime && <span title="Live traffic" className="text-[9px] text-emerald-600 font-bold">🚦</span>}
                   <span className="text-slate-300">·</span>
                   <span>{formatDist(opt.driveDistanceM)}</span>
                 </div>
