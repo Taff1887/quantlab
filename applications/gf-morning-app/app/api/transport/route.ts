@@ -1,6 +1,9 @@
-// TfNSW Departure Monitor — direct text search, no direction filtering
-// All departures from Mosman ferry wharves go to Circular Quay (either direct
-// or via loop), so we only need to filter by ferry service type.
+// TfNSW Departure Monitor
+// Step 1: Stop Finder resolves exact ferry-wharf stop ID (cached 24 h)
+// Step 2: Departure Monitor returns departures — filter to INBOUND (→ Circular Quay) only
+// Direction detection: TfNSW description is "[Route] [Origin] to [Destination]"
+//   e.g. "Mosman Bay Mosman Bay to Circular Quay"  → inbound  ✓
+//        "Mosman Bay Circular Quay to Mosman Bay"   → outbound ✗
 
 export const revalidate = 30;
 
@@ -8,7 +11,9 @@ const STOP_FINDER = "https://api.transport.nsw.gov.au/v1/tp/stop_finder";
 const DEP_MON     = "https://api.transport.nsw.gov.au/v1/tp/departure_mon";
 const SYD_TZ      = "Australia/Sydney";
 
-// Official TfNSW stop names (with "Ferry Wharf") for reliable text matching
+// Walk from Circular Quay ferry wharf → 1 Farrer Place
+const OFFICE_WALK_MINS = 8;
+
 const FERRY_WHARVES = [
   {
     searchName:     "Taronga Zoo Ferry Wharf",
@@ -17,7 +22,7 @@ const FERRY_WHARVES = [
     walkDistanceM:  700,
     driveMins:      4,
     driveDistanceM: 500,
-    crossingMins:   15,  // TZ → Circular Quay
+    crossingMins:   15,
   },
   {
     searchName:     "South Mosman Ferry Wharf",
@@ -26,7 +31,7 @@ const FERRY_WHARVES = [
     walkDistanceM:  1200,
     driveMins:      6,
     driveDistanceM: 900,
-    crossingMins:   25,  // South Mosman → Circular Quay
+    crossingMins:   25,
   },
   {
     searchName:     "Mosman Bay Ferry Wharf",
@@ -35,7 +40,7 @@ const FERRY_WHARVES = [
     walkDistanceM:  1550,
     driveMins:      7,
     driveDistanceM: 1100,
-    crossingMins:   22,  // Mosman Bay → Circular Quay
+    crossingMins:   22,
   },
   {
     searchName:     "Cremorne Point Ferry Wharf",
@@ -44,12 +49,18 @@ const FERRY_WHARVES = [
     walkDistanceM:  1700,
     driveMins:      8,
     driveDistanceM: 1400,
-    crossingMins:   18,  // Cremorne Point → Circular Quay
+    crossingMins:   18,
+  },
+  {
+    searchName:     "Old Cremorne Wharf",
+    wharfKey:       "Old Cremorne",
+    walkMins:       27,
+    walkDistanceM:  1850,
+    driveMins:      9,
+    driveDistanceM: 1550,
+    crossingMins:   20,
   },
 ];
-
-// Walk from Circular Quay ferry wharf → 1 Farrer Place
-const OFFICE_WALK_MINS = 8;
 
 function pad(n: number) { return String(n).padStart(2, "0"); }
 
@@ -72,13 +83,35 @@ function subMins(hhmm: string, mins: number): string {
   return `${pad(Math.floor(t / 60) % 24)}:${pad(t % 60)}`;
 }
 
-// ── Resolve stop ID via Stop Finder (cached 24 h) ─────────────────────────────
+// ── Direction filter ──────────────────────────────────────────────────────────
+// TfNSW description field is "[Route Name] [Origin] to [Destination]"
+// We keep only departures heading TO Circular Quay.
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isInboundToCity(ev: any): boolean {
+  const desc = (ev.transportation?.description ?? "").toLowerCase();
+
+  // Definitive: description ends in "to circular quay" → inbound ✓
+  if (desc.includes("to circular quay")) return true;
+  // Definitive: description says "circular quay to [somewhere]" → outbound ✗
+  if (desc.includes("circular quay to ")) return false;
+
+  // Fallback: check the destination stop name
+  const destName = (ev.transportation?.destination?.name ?? "").toLowerCase();
+  if (destName.includes("circular quay") || destName.includes("quay")) return true;
+  if (destName && !destName.includes("quay")) return false;
+
+  // No info — include rather than drop
+  return true;
+}
+
+// ── Stop Finder (cached 24 h) ─────────────────────────────────────────────────
 
 async function resolveStopId(searchName: string, apiKey: string): Promise<string | null> {
   const url = new URL(STOP_FINDER);
   url.searchParams.set("outputFormat",      "rapidJSON");
   url.searchParams.set("coordOutputFormat", "EPSG:4326");
-  url.searchParams.set("type_sf",           "any");   // search all types; filter to ferry below
+  url.searchParams.set("type_sf",           "any");
   url.searchParams.set("name_sf",           searchName);
   url.searchParams.set("TfNSWSF",           "true");
 
@@ -94,24 +127,23 @@ async function resolveStopId(searchName: string, apiKey: string): Promise<string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const locations: any[] = data?.locations ?? [];
 
-  // Log what came back so Vercel logs show which stop was chosen
   console.log(
-    `Stop Finder "${searchName}": ${locations.length} results — ` +
+    `StopFinder "${searchName}": ${locations.length} results — ` +
     locations.slice(0, 3).map(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (l: any) => `${l.name} (id=${l.id}, classes=${JSON.stringify(l.productClasses)})`
+      (l: any) => `"${l.name}" id=${l.id} classes=${JSON.stringify(l.productClasses)}`
     ).join(" | ")
   );
 
-  // Prefer stops that explicitly serve ferry (product class 9)
-  const ferryStop = locations.find(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (l: any) => (l.productClasses as number[] ?? []).includes(9)
+  // Prefer ferry stops (product class 9)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ferryStop = locations.find((l: any) =>
+    (l.productClasses as number[] ?? []).includes(9)
   );
   return (ferryStop ?? locations[0])?.id ?? null;
 }
 
-// ── Fetch departures ──────────────────────────────────────────────────────────
+// ── Departure Monitor ─────────────────────────────────────────────────────────
 
 async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
   const stopId = await resolveStopId(wharf.searchName, apiKey);
@@ -137,23 +169,24 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const events: any[] = data?.stopEvents ?? [];
 
-  // Log every unique route + destination so we can see what the API returns
-  const summary = [...new Map(events.map((e) => [
-    e.transportation?.number,
-    `${e.transportation?.number} → ${e.transportation?.destination?.name} (class ${e.transportation?.product?.class})`,
-  ])).values()].join(" | ");
-  console.log(`${wharf.wharfKey} [stop=${stopId}]: ${events.length} events. ${summary}`);
+  // Log a sample of what came back for debugging
+  const sample = events.slice(0, 6).map((e) =>
+    `${e.transportation?.number} "${e.transportation?.description}" → dest="${e.transportation?.destination?.name}"`
+  ).join(" | ");
+  console.log(`${wharf.wharfKey} [${stopId}]: ${events.length} events. ${sample}`);
 
-  // Keep ferry services only — product class 9, or route prefix F or CC (CCTZ fast ferry)
-  // No direction filter: all departures from these wharves head to Circular Quay
-  const ferryEvents = events.filter((ev) => {
+  // Keep ferry services (product class 9, F* or CC* prefix) heading inbound to Circular Quay
+  const inbound = events.filter((ev) => {
     const cls: number   = ev.transportation?.product?.class ?? 0;
     const route: string = (ev.transportation?.number ?? "").toUpperCase();
-    return cls === 9 || route.startsWith("F") || route.startsWith("CC");
+    const isFerry = cls === 9 || route.startsWith("F") || route.startsWith("CC");
+    return isFerry && isInboundToCity(ev);
   });
 
+  console.log(`${wharf.wharfKey}: ${inbound.length}/${events.length} kept after ferry+direction filter`);
+
   const trips = [];
-  for (const ev of ferryEvents.slice(0, 6)) {
+  for (const ev of inbound.slice(0, 6)) {
     const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned;
     if (!depIso) continue;
 
@@ -161,14 +194,16 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
     const destinationArrival = addMins(departureTime, wharf.crossingMins);
     const officeArrival      = addMins(destinationArrival, OFFICE_WALK_MINS);
     const totalMins          = wharf.walkMins + wharf.crossingMins + OFFICE_WALK_MINS;
-    const routeNum           = ev.transportation?.number ?? "";
-    const routeDesc          = ev.transportation?.description ?? "";
+
+    // Clean route name — just the number, not the verbose TfNSW direction description
+    const routeNum = (ev.transportation?.number ?? "").toUpperCase();
+    const routeName = routeNum ? `${routeNum} to Circular Quay` : "Ferry to Circular Quay";
 
     trips.push({
       id:               `${wharf.wharfKey.toLowerCase().replace(/\s+/g, "-")}-${departureTime}`,
       mode:             "ferry" as const,
       wharf:            wharf.wharfKey,
-      routeName:        `${routeNum} ${routeDesc}`.trim() || "Ferry to Circular Quay",
+      routeName,
       stopName:         `${wharf.wharfKey} Ferry Wharf`,
       walkMins:         wharf.walkMins,
       walkDistanceM:    wharf.walkDistanceM,

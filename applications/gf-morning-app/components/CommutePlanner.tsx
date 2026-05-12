@@ -18,6 +18,7 @@ const FERRY_WHARVES: { label: string; value: WharfName | "all" }[] = [
   { label: "South Mosman", value: "South Mosman" },
   { label: "Mosman Bay", value: "Mosman Bay" },
   { label: "Cremorne Point", value: "Cremorne Point" },
+  { label: "Old Cremorne", value: "Old Cremorne" },
 ];
 
 const BUS_ROUTES = [

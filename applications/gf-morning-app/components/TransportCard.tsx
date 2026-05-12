@@ -10,6 +10,7 @@ const FERRY_WHARVES: { label: string; value: WharfName }[] = [
   { label: "South Mosman", value: "South Mosman" },
   { label: "Mosman Bay", value: "Mosman Bay" },
   { label: "Cremorne Point", value: "Cremorne Point" },
+  { label: "Old Cremorne", value: "Old Cremorne" },
 ];
 
 const BUS_ROUTES: { label: string; value: string }[] = [
@@ -49,7 +50,7 @@ export default function TransportCard() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [mode, setMode] = useState<PrimaryMode>("all");
   const [selectedWharves, setSelectedWharves] = useState<WharfName[]>([
-    "Taronga Zoo", "South Mosman", "Mosman Bay", "Cremorne Point",
+    "Taronga Zoo", "South Mosman", "Mosman Bay", "Cremorne Point", "Old Cremorne",
   ]);
   const [selectedBuses, setSelectedBuses] = useState<string[]>(["bus-144", "bus-178"]);
   const [sort, setSort] = useState<SortKey>("departure");

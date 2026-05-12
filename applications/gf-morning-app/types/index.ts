@@ -37,7 +37,8 @@ export type WharfName =
   | "Taronga Zoo"
   | "South Mosman"
   | "Mosman Bay"
-  | "Cremorne Point";
+  | "Cremorne Point"
+  | "Old Cremorne";
 
 export interface TransportOption {
   id: string;
