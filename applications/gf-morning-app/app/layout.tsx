@@ -9,13 +9,13 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Morning Command Centre",
+  title: "Penny's Planner",
   description: "Your personal morning dashboard — weather, commute, gym, and life admin.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Morning CC",
+    title: "Penny's Planner",
   },
   formatDetection: { telephone: false },
 };

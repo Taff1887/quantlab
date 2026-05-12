@@ -1,6 +1,6 @@
 {
-  "name": "Morning Command Centre",
-  "short_name": "Morning CC",
+  "name": "Penny's Planner",
+  "short_name": "Penny's Planner",
   "description": "Your personal morning dashboard — weather, commute, gym, and life admin.",
   "start_url": "/",
   "display": "standalone",
