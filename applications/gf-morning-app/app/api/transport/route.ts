@@ -1,6 +1,7 @@
 // TfNSW Departure Monitor
-// Step 1: use Stop Finder API to resolve the exact ferry-wharf stop ID (cached 24 h)
-// Step 2: use that stop ID in the Departure Monitor — no wrong-stop mismatches
+// Step 1: Stop Finder resolves the exact ferry-wharf stop ID (cached 24 h)
+// Step 2: Departure Monitor fetches departures for that stop ID
+// Step 3: Keep only ferries heading TOWARDS Circular Quay (inbound)
 
 export const revalidate = 30;
 
@@ -70,37 +71,64 @@ function subMins(hhmm: string, mins: number): string {
   return `${pad(Math.floor(t / 60) % 24)}:${pad(t % 60)}`;
 }
 
-// ── Step 1: resolve ferry wharf stop ID via Stop Finder ──────────────────────
-// Cached for 24 h by Next.js fetch cache — only runs once per day per wharf
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function isFerryService(ev: Record<string, unknown>): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t: any = ev.transportation ?? {};
+  const cls: number  = t?.product?.class ?? 0;
+  const route: string = (t?.number ?? "").toUpperCase();
+  // Product class 9 = ferry; also match F* routes (F2, F4…) and CC* (CCTZ fast ferry)
+  return cls === 9 || route.startsWith("F") || route.startsWith("CC");
+}
+
+function isInboundToCity(ev: Record<string, unknown>): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const t: any = ev.transportation ?? {};
+  const dest: string = (t?.destination?.name ?? "").toLowerCase();
+  // If destination info is absent, don't discard the event
+  if (!dest) return true;
+  // Keep only services terminating at Circular Quay
+  return dest.includes("circular quay") || dest.includes("quay");
+}
+
+// ── Step 1: resolve ferry-wharf stop ID via Stop Finder ───────────────────────
 
 async function resolveStopId(searchName: string, apiKey: string): Promise<string | null> {
   const url = new URL(STOP_FINDER);
   url.searchParams.set("outputFormat",      "rapidJSON");
   url.searchParams.set("coordOutputFormat", "EPSG:4326");
-  url.searchParams.set("type_sf",           "stop");   // restrict to PT stops only
+  url.searchParams.set("type_sf",           "stop");   // PT stops only — no streets / POIs
   url.searchParams.set("name_sf",           searchName);
   url.searchParams.set("TfNSWSF",           "true");
 
   const res = await fetch(url.toString(), {
     headers: { Authorization: `apikey ${apiKey}` },
-    next: { revalidate: 86400 },                        // 24-hour cache
+    next: { revalidate: 86400 },                       // cache 24 h — stop IDs never change
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    console.warn(`Stop Finder ${res.status} for "${searchName}"`);
+    return null;
+  }
   const data = await res.json();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const locations: any[] = data?.locations ?? [];
 
-  // Prefer stops that serve ferry (product class 9)
-  const ferryStop = locations.find((loc) => {
-    const classes: number[] = loc.productClasses ?? [];
-    return classes.includes(9);
-  });
-
-  return (ferryStop ?? locations[0])?.id ?? null;
+  // Prefer a stop that explicitly serves ferry (product class 9)
+  const ferryStop = locations.find((loc) =>
+    (loc.productClasses as number[] ?? []).includes(9)
+  );
+  const chosen = ferryStop ?? locations[0];
+  if (!chosen) {
+    console.warn(`Stop Finder: no results for "${searchName}"`);
+    return null;
+  }
+  console.log(`Stop Finder resolved "${searchName}" → id=${chosen.id} name="${chosen.name}"`);
+  return chosen.id ?? null;
 }
 
-// ── Step 2: fetch departures using the resolved stop ID ───────────────────────
+// ── Step 2: fetch departures by stop ID, filter to inbound city-bound ferries ─
 
 async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
   const stopId = await resolveStopId(wharf.searchName, apiKey);
@@ -109,7 +137,7 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
   const url = new URL(DEP_MON);
   url.searchParams.set("outputFormat",          "rapidJSON");
   url.searchParams.set("coordOutputFormat",     "EPSG:4326");
-  url.searchParams.set("type_dm",               "stop");   // exact stop ID lookup
+  url.searchParams.set("type_dm",               "stop");   // exact stop ID
   url.searchParams.set("name_dm",               stopId);
   url.searchParams.set("mode",                  "direct");
   url.searchParams.set("departureMonitorMacro", "true");
@@ -126,15 +154,23 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const events: any[] = data?.stopEvents ?? [];
 
-  // Keep only actual ferry services (product class 9, or route number starts with F)
-  const ferryEvents = events.filter((ev) => {
-    const cls: number  = ev.transportation?.product?.class ?? 0;
-    const route: string = ev.transportation?.number ?? "";
-    return cls === 9 || route.toUpperCase().startsWith("F");
-  });
+  // Keep ferry services heading TOWARDS Circular Quay only
+  const inboundFerries = events.filter(
+    (ev) => isFerryService(ev) && isInboundToCity(ev)
+  );
+
+  // Log a summary so Vercel logs show what the API returned
+  console.log(
+    `${wharf.wharfKey}: ${events.length} total events, ` +
+    `${inboundFerries.length} inbound ferry events. ` +
+    `Sample destinations: ${[...new Set(events.map(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (e: any) => e.transportation?.destination?.name
+    ))].slice(0, 5).join(", ")}`
+  );
 
   const trips = [];
-  for (const ev of ferryEvents.slice(0, 3)) {
+  for (const ev of inboundFerries.slice(0, 3)) {
     const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned;
     if (!depIso) continue;
 
@@ -172,29 +208,23 @@ export async function GET() {
   const apiKey = process.env.TFNSW_API_KEY;
   if (!apiKey) return Response.json({ error: "NO_KEY", trips: [] }, { status: 200 });
 
-  try {
-    const results = await Promise.allSettled(
-      FERRY_WHARVES.map((w) => fetchWharf(w, apiKey))
-    );
+  const results = await Promise.allSettled(
+    FERRY_WHARVES.map((w) => fetchWharf(w, apiKey))
+  );
 
-    // Log any failures so we can see which wharves are having issues
-    results.forEach((r, i) => {
-      if (r.status === "rejected") {
-        console.error(`Wharf fetch failed [${FERRY_WHARVES[i].wharfKey}]:`, r.reason);
-      }
-    });
+  results.forEach((r, i) => {
+    if (r.status === "rejected") {
+      console.error(`[${FERRY_WHARVES[i].wharfKey}] fetch failed:`, r.reason);
+    }
+  });
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const trips: any[] = results
+    .filter((r) => r.status === "fulfilled")
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const trips: any[] = results
-      .filter((r) => r.status === "fulfilled")
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .flatMap((r) => (r as any).value);
+    .flatMap((r) => (r as any).value);
 
-    trips.sort((a, b) => a.departureTime.localeCompare(b.departureTime));
+  trips.sort((a, b) => a.departureTime.localeCompare(b.departureTime));
 
-    return Response.json({ trips, isRealtime: true });
-  } catch (err) {
-    console.error("TfNSW API error:", err);
-    return Response.json({ error: "API_ERROR", trips: [] }, { status: 200 });
-  }
+  return Response.json({ trips, isRealtime: true });
 }
