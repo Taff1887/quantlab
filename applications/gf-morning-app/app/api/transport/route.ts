@@ -146,23 +146,16 @@ function isInboundFerry(ev: any): boolean {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isInboundBus(ev: any, routeFilter: string[]): boolean {
-  // Product class 5 = bus. Skip anything else at the stop (ferries, trains etc.)
-  const productClass = ev.transportation?.product?.class;
-  if (productClass !== undefined && productClass !== 5 && productClass !== 11) return false;
-
   const routeNum = (ev.transportation?.number ?? "").trim().toUpperCase();
   if (routeFilter.length > 0 && !routeFilter.map((r) => r.toUpperCase()).includes(routeNum)) return false;
 
-  const desc = (ev.transportation?.description ?? "").toLowerCase();
   const dest = (ev.transportation?.destination?.name ?? "").toLowerCase();
+  const desc = (ev.transportation?.description ?? "").toLowerCase();
 
-  // Drop known outbound destinations first
-  const outboundKeywords = ["taronga zoo", "zoo", "balmoral", "manly", "chatswood", "mosman junction"];
-  if (outboundKeywords.some((kw) => dest.includes(kw) || desc.includes(kw))) return false;
+  // Drop outbound (Taronga Zoo-bound) — the return leg of the Route 100 loop
+  if (dest.includes("taronga") || desc.includes("taronga zoo")) return false;
 
-  // Require a positive city-bound signal — Route 100 city-bound says "City QVB" / "Wynyard" etc.
-  const cityKeywords = ["wynyard", "city", "circular quay", "central", "cbd", "town hall", "qvb"];
-  return cityKeywords.some((kw) => dest.includes(kw) || desc.includes(kw));
+  return true;
 }
 
 // ── Stop Finder ───────────────────────────────────────────────────────────────
