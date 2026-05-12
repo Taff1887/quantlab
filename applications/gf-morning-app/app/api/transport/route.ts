@@ -71,7 +71,7 @@ const BUS_STOPS = [
     stopId:          "208858",   // TfNSW stop ID — skip Stop Finder entirely
     stopKey:         "bus-b100-whiting",
     stopName:        "Bradleys Head Rd at Whiting Beach Rd",
-    routeFilter:     ["B100"],   // case-insensitive match applied in isInboundBus
+    routeFilter:     [],         // no filter — accept all inbound; log will reveal exact route number
     walkMins:        10,
     walkDistanceM:   700,
     driveMins:       3,
@@ -294,6 +294,10 @@ async function fetchBusStop(stop: typeof BUS_STOPS[0], apiKey: string) {
     `${e.transportation?.number} "${e.transportation?.description}" dest="${e.transportation?.destination?.name}"`
   ).join(" | ");
   console.log(`BUS ${stop.stopKey} [${stopId}]: ${events.length} events. ${sample}`);
+
+  // Log ALL route numbers from this stop so we can identify the correct filter value
+  const allRouteNums = [...new Set(events.map((e) => (e.transportation?.number ?? "?").trim()))];
+  console.log(`BUS ${stop.stopKey} route numbers seen: ${JSON.stringify(allRouteNums)}`);
 
   const inbound = events.filter((ev) => {
     if (!isInboundBus(ev, stop.routeFilter)) return false;
