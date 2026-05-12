@@ -68,23 +68,16 @@ const FERRY_WHARVES = [
 
 const BUS_STOPS = [
   {
-    stopKey:         "bus-b100",
-    stopName:        "Bradleys Head Rd at Whiting Beach Rd",
-    routeFilter:     ["100"],
-    walkMins:        10,
-    walkDistanceM:   700,
-    driveMins:       3,
-    driveDistanceM:  450,
-    transitMins:     34,
-    destinationStop: "Lang Park, York St",
+    stopKey:          "bus-b100",
+    stopName:         "Bradleys Head Rd at Whiting Beach Rd",
+    routeFilter:      ["100"],
+    walkMins:         10,
+    walkDistanceM:    700,
+    driveMins:        3,
+    driveDistanceM:   450,
+    transitMins:      34,
+    destinationStop:  "Lang Park, York St",
     walkToOfficeMins: 11,
-    // Try each name in order until one returns Route 100 events
-    resolveAttempts: [
-      { name: "Taronga Zoo Ferry, Bradleys Head Rd", preferBus: true  },
-      { name: "Taronga Zoo Ferry Wharf",             preferBus: false },
-      { name: "Bradleys Head Rd at Whiting Beach Rd", preferBus: true },
-      { name: "Taronga Zoo",                          preferBus: true  },
-    ],
   },
 ];
 
@@ -211,36 +204,6 @@ async function resolveStopId(
   return (ferryStop ?? locations[0])?.id ?? null;
 }
 
-// Resolve a stop by its TfNSW stop code (e.g. "208858") using type_sf=stop.
-// This bypasses name-matching ambiguity and returns the EFA internal ID directly.
-async function resolveStopByCode(stopCode: string, apiKey: string): Promise<string | null> {
-  const url = new URL(STOP_FINDER);
-  url.searchParams.set("outputFormat",      "rapidJSON");
-  url.searchParams.set("coordOutputFormat", "EPSG:4326");
-  url.searchParams.set("type_sf",           "stop");
-  url.searchParams.set("name_sf",           stopCode);
-  url.searchParams.set("TfNSWSF",           "true");
-
-  const res = await fetch(url.toString(), {
-    headers: { Authorization: `apikey ${apiKey}` },
-    next: { revalidate: 86400 },
-  });
-  if (!res.ok) { console.warn(`StopFinder(stop) ${res.status} for code "${stopCode}"`); return null; }
-  const data = await res.json();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const locations: any[] = data?.locations ?? [];
-
-  console.log(
-    `StopFinder(stop) code="${stopCode}": ${locations.length} results — ` +
-    locations.slice(0, 3).map(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (l: any) => `"${l.name}" id=${l.id} classes=${JSON.stringify(l.productClasses)}`
-    ).join(" | ")
-  );
-
-  return locations[0]?.id ?? null;
-}
-
 // ── Departure Monitor helper ──────────────────────────────────────────────────
 
 async function getDepartures(
@@ -330,11 +293,41 @@ async function fetchWharf(
   return trips;
 }
 
+// ── Departure Monitor — name-based search ────────────────────────────────────
+// type_dm=any lets the DM resolve by stop name directly (no Stop Finder needed).
+
+async function getDeparturesByName(
+  stopName: string,
+  apiKey: string,
+  dtOpts: { itdDate?: string; itdTime?: string } = {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any[]> {
+  const url = new URL(DEP_MON);
+  url.searchParams.set("outputFormat",          "rapidJSON");
+  url.searchParams.set("coordOutputFormat",     "EPSG:4326");
+  url.searchParams.set("type_dm",               "any");
+  url.searchParams.set("name_dm",               stopName);
+  url.searchParams.set("mode",                  "direct");
+  url.searchParams.set("departureMonitorMacro", "true");
+  url.searchParams.set("TfNSWDM",               "true");
+  url.searchParams.set("version",               "10.2.1.42");
+  if (dtOpts.itdDate) url.searchParams.set("itdDate", dtOpts.itdDate);
+  if (dtOpts.itdTime) url.searchParams.set("itdTime", dtOpts.itdTime);
+
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `apikey ${apiKey}` },
+    cache: "no-store" as const,
+  });
+  if (!res.ok) throw new Error(`DM/any ${res.status} for "${stopName}"`);
+  const data = await res.json();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data?.stopEvents ?? []) as any[];
+}
+
 // ── Fetch bus stop ────────────────────────────────────────────────────────────
-// Same pattern as ferries: resolve a known-working stop, then filter events
-// by product class (5 = bus), route number, window, and direction.
-// Route 100 starts at Taronga Zoo Ferry, so its departures appear in the DM
-// results for that wharf — exactly like how 230/565n appear at other wharves.
+// Strategy A: query DM directly with type_dm=any and several stop-name variants
+//   (bypasses Stop Finder name ambiguity entirely).
+// Strategy B: resolve via Stop Finder → DM with type_dm=stop (existing logic).
 
 async function fetchBusStop(
   stop: typeof BUS_STOPS[0],
@@ -343,27 +336,66 @@ async function fetchBusStop(
 ): Promise<{ trips: object[]; debug: string[] }> {
   const dbg: string[] = [];
 
-  // Try each candidate stop name until one returns Route 100 events
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function hasRouteMatch(evs: any[]): boolean {
+    const targets = stop.routeFilter.map((r) => r.toUpperCase());
+    return evs.some((ev) => {
+      const cls = ev.transportation?.product?.class;
+      if (cls != null && cls !== 5 && cls !== 11) return false;
+      return targets.includes((ev.transportation?.number ?? "").trim().toUpperCase());
+    });
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function evSummary(evs: any[]): string {
+    const classes = [...new Set(evs.map((e) => `${e.transportation?.product?.class}:${e.transportation?.number ?? "?"}`))];
+    return `${evs.length} events [${classes.join(",")}]`;
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let events: any[] = [];
 
-  for (const attempt of stop.resolveAttempts) {
-    const stopId = await resolveStopId(attempt.name, apiKey, attempt.preferBus, 0).catch(() => null);
-    if (!stopId) { dbg.push(`"${attempt.name}" → null`); continue; }
+  // ── Strategy A: DM/any direct name search ────────────────────────────────
+  // TfNSW DM accepts stop names with type_dm=any — no Stop Finder needed.
+  // Route 100 at Bradleys Head Rd is a standalone bus stop; TfNSW internal
+  // stop names often use "Before" rather than "at" for the directional suffix.
+  const dmNameCandidates = [
+    "Bradleys Head Rd Before Whiting Beach Rd",
+    "Bradleys Head Rd at Whiting Beach Rd",
+    "Bradleys Head Rd, Mosman",
+    "Taronga Zoo Ferry, Bradleys Head Rd",
+    "Whiting Beach Rd at Bradleys Head Rd",
+    "208858",                       // public stop code — DM/any may accept it
+  ];
 
-    const evs = await getDepartures(stopId, apiKey, dtOpts).catch(() => [] as object[]);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const r100 = (evs as any[]).filter((ev: any) => {
-      const cls = ev.transportation?.product?.class;
-      if (cls != null && cls !== 5 && cls !== 11) return false;
-      const n = (ev.transportation?.number ?? "").trim().toUpperCase();
-      return stop.routeFilter.map((r) => r.toUpperCase()).includes(n);
+  for (const name of dmNameCandidates) {
+    if (events.length > 0) break;
+    const evs = await getDeparturesByName(name, apiKey, dtOpts).catch((e: Error) => {
+      dbg.push(`DM/any "${name}": ERR ${e.message}`); return [];
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const allCls = [...new Set((evs as any[]).map((e: any) => `${e.transportation?.product?.class}:${e.transportation?.number ?? "?"}`))];
-    dbg.push(`"${attempt.name}"→${stopId}: ${evs.length} events [${allCls.join(",")}] ${r100.length} Route100`);
+    const summary = evSummary(evs);
+    const hit = hasRouteMatch(evs);
+    dbg.push(`DM/any "${name}": ${summary} hit=${hit}`);
+    if (hit) events = evs;
+  }
 
-    if (r100.length > 0) { events = evs as object[]; break; }
+  // ── Strategy B: Stop Finder → DM/stop ────────────────────────────────────
+  if (events.length === 0) {
+    const sfCandidates = [
+      { name: "Taronga Zoo Ferry Wharf",              preferBus: false },
+      { name: "Bradleys Head Rd at Whiting Beach Rd", preferBus: true  },
+      { name: "Taronga Zoo",                          preferBus: true  },
+    ];
+    for (const attempt of sfCandidates) {
+      if (events.length > 0) break;
+      const stopId = await resolveStopId(attempt.name, apiKey, attempt.preferBus, 0).catch(() => null);
+      if (!stopId) { dbg.push(`SF "${attempt.name}" → null`); continue; }
+      const evs = await getDepartures(stopId, apiKey, dtOpts).catch(() => []);
+      const summary = evSummary(evs);
+      const hit = hasRouteMatch(evs);
+      dbg.push(`SF "${attempt.name}"→${stopId}: ${summary} hit=${hit}`);
+      if (hit) events = evs;
+    }
   }
 
   console.log(`BUS ${stop.stopKey}: ${dbg.join(" | ")}`);
@@ -372,7 +404,7 @@ async function fetchBusStop(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const inbound = events.filter((ev: any) => {
-    // Must be a bus (product class 5), not a ferry or train
+    // Must be a bus (product class 5 or 11 school bus), not a ferry or train
     const cls = ev.transportation?.product?.class;
     if (cls != null && cls !== 5 && cls !== 11) return false;
 
