@@ -314,32 +314,19 @@ export default function CommutePlanner() {
             </p>
           ) : (
             <>
-              {/* Just late — arrives target+1 to target+5 — shown first, in black */}
+              {/* Just late — arrives target+1 to target+5 — shown without label */}
               {results.justLate.length > 0 && (
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="flex-1 border-t border-slate-100" />
-                    <span className="text-xs text-slate-400 font-medium flex-shrink-0">
-                      Just after — up to 5 min late
-                    </span>
-                    <div className="flex-1 border-t border-slate-100" />
-                  </div>
-                  <div className="space-y-3">
-                    {results.justLate.map((t) => (
-                      <TripRow key={t.id} trip={t} dim={false} />
-                    ))}
-                  </div>
+                <div className="space-y-3">
+                  {results.justLate.map((t) => (
+                    <TripRow key={t.id} trip={t} dim={false} />
+                  ))}
                 </div>
               )}
 
               {results.main.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 border-t border-slate-100" />
-                  <span className="text-xs text-slate-400 font-medium flex-shrink-0">
-                    On time — {results.main.length} option{results.main.length !== 1 ? "s" : ""}
-                  </span>
-                  <div className="flex-1 border-t border-slate-100" />
-                </div>
+                <p className="text-xs text-slate-400 font-medium text-center">
+                  {results.main.length} option{results.main.length !== 1 ? "s" : ""}
+                </p>
               )}
 
               {/* On-time results — latest arrival first */}
@@ -359,21 +346,12 @@ export default function CommutePlanner() {
                 </button>
               )}
 
-              {/* Nearly late — arrives target+6 to target+15 — greyed */}
+              {/* Nearly late — arrives target+6 to target+15 — greyed, no label */}
               {results.nearlyLate.length > 0 && (
-                <div className="mt-2">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="flex-1 border-t border-slate-100" />
-                    <span className="text-xs text-slate-400 font-medium flex-shrink-0">
-                      6–15 min late
-                    </span>
-                    <div className="flex-1 border-t border-slate-100" />
-                  </div>
-                  <div className="space-y-3">
-                    {results.nearlyLate.map((t) => (
-                      <TripRow key={t.id} trip={t} dim />
-                    ))}
-                  </div>
+                <div className="mt-2 space-y-3">
+                  {results.nearlyLate.map((t) => (
+                    <TripRow key={t.id} trip={t} dim />
+                  ))}
                 </div>
               )}
             </>

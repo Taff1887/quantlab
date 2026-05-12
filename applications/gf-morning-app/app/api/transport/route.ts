@@ -345,25 +345,37 @@ async function fetchBusStop(
   const allRouteNums = [...new Set(events.map((e) => (e.transportation?.number ?? "?").trim()))];
   console.log(`BUS ${stop.stopKey} route numbers seen: ${JSON.stringify(allRouteNums)}`);
 
-  // No direction filter — this stop is physically on the city-bound side of the road.
-  // Just match route number (case-insensitive) and time window.
+  // Filter: correct route, city-bound direction only, 30-min window
   const inbound = events.filter((ev) => {
     const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned ?? "";
     if (!depIso) return false;
     const mins = minsUntil(isoToHHMM(depIso), now);
-    if (mins < 0 || mins > 120) return false;
-    // Route filter — empty array means accept all
+    if (mins < 0 || mins > 30) return false;
+    // Route filter
     if (stop.routeFilter.length > 0) {
       const routeNum = (ev.transportation?.number ?? "").trim().toUpperCase();
       if (!stop.routeFilter.map((r) => r.toUpperCase()).includes(routeNum)) return false;
     }
+    // Direction filter — drop buses heading back to Taronga Zoo (return leg of loop)
+    const dest = (ev.transportation?.destination?.name ?? "").toLowerCase();
+    const desc = (ev.transportation?.description ?? "").toLowerCase();
+    if (dest.includes("taronga") || desc.includes("taronga zoo")) return false;
     return true;
   });
 
-  console.log(`BUS ${stop.stopKey}: ${inbound.length}/${events.length} matched within 2 h`);
+  // Deduplicate by departure time (loop service can return same trip twice)
+  const seen = new Set<string>();
+  const dedupedInbound = inbound.filter((ev) => {
+    const key = ev.departureTimeEstimated ?? ev.departureTimePlanned ?? "";
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  console.log(`BUS ${stop.stopKey}: ${dedupedInbound.length}/${events.length} matched (deduped, city-bound, 30 min window)`);
 
   const trips = [];
-  for (const ev of inbound) {
+  for (const ev of dedupedInbound) {
     const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned;
     if (!depIso) continue;
     // Offset from terminus to displayed stop (e.g. Taronga Zoo → Whiting Beach Rd = +2 min)
