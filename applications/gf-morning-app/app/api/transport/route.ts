@@ -68,27 +68,15 @@ const FERRY_WHARVES = [
 
 const BUS_STOPS = [
   {
-    searchName:      "Bradleys Head Rd near Morella Rd",
-    stopKey:         "bus-238-morella",
-    stopName:        "Bradleys Head Rd (near Morella Rd)",
+    searchName:      "Bradleys Head Rd near Thompson St",
+    stopKey:         "bus-238-thompson",
+    stopName:        "Bradleys Head Rd (Thompson St)",
     routeFilter:     ["238"],
-    walkMins:        8,
-    walkDistanceM:   550,
+    walkMins:        10,
+    walkDistanceM:   700,
     driveMins:       3,
-    driveDistanceM:  400,
-    transitMins:     35,   // Bradleys Head Rd → Wynyard
-    destinationStop: "Wynyard",
-  },
-  {
-    searchName:      "Bradleys Head Rd near Silex Rd",
-    stopKey:         "bus-238-silex",
-    stopName:        "Bradleys Head Rd (near Silex Rd)",
-    routeFilter:     ["238"],
-    walkMins:        12,
-    walkDistanceM:   850,
-    driveMins:       4,
-    driveDistanceM:  650,
-    transitMins:     33,
+    driveDistanceM:  450,
+    transitMins:     34,   // Bradleys Head Rd → Wynyard
     destinationStop: "Wynyard",
   },
 ];
