@@ -331,69 +331,108 @@ async function fetchWharf(
 
 // ── Fetch bus stop ────────────────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchBusStop(
   stop: typeof BUS_STOPS[0],
   apiKey: string,
   dtOpts: { itdDate?: string; itdTime?: string; fromMins?: number } = {}
-) {
-  // Try stop-code lookup first (unambiguous), fall back to name search.
-  let stopId = await resolveStopByCode(stop.stopCode, apiKey).catch(() => null);
-  if (stopId) {
-    console.log(`BUS ${stop.stopKey}: code ${stop.stopCode} → EFA id ${stopId}`);
-  } else {
-    console.warn(`BUS ${stop.stopKey}: code lookup returned null — trying name search`);
-    stopId = await resolveStopId(stop.stopName, apiKey, true).catch(() => null);
-    if (stopId) console.log(`BUS ${stop.stopKey}: name search → EFA id ${stopId}`);
+): Promise<{ trips: object[]; debug: string[] }> {
+  const dbg: string[] = [];
+
+  // ── Try four approaches in order until we get events ────────────────────────
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let events: any[] = [];
+  let usedId = "";
+
+  // 1. DM directly with public stop code + type_dm=stop
+  //    (some TfNSW DM versions accept the 6-digit public code as a global stop ID)
+  if (events.length === 0) {
+    try {
+      const e = await getDepartures(stop.stopCode, apiKey, { ...dtOpts, typeDm: "stop" });
+      dbg.push(`A1 DM type_dm=stop name_dm=${stop.stopCode}: ${e.length} events`);
+      if (e.length > 0) { events = e; usedId = stop.stopCode; }
+    } catch (err) { dbg.push(`A1 failed: ${err}`); }
   }
-  if (!stopId) throw new Error(`Could not resolve bus stop "${stop.stopCode}" / "${stop.stopName}"`);
-  const events = await getDepartures(stopId, apiKey, dtOpts);
+
+  // 2. Stop Finder (type_sf=stop) → EFA internal ID → DM
+  if (events.length === 0) {
+    try {
+      const efaId = await resolveStopByCode(stop.stopCode, apiKey);
+      dbg.push(`A2 StopFinder type_sf=stop "${stop.stopCode}" → efaId=${efaId}`);
+      if (efaId && efaId !== stop.stopCode) {
+        const e = await getDepartures(efaId, apiKey, dtOpts);
+        dbg.push(`A2 DM type_dm=stop name_dm=${efaId}: ${e.length} events`);
+        if (e.length > 0) { events = e; usedId = efaId; }
+      }
+    } catch (err) { dbg.push(`A2 failed: ${err}`); }
+  }
+
+  // 3. Stop Finder (type_sf=any + stop name, preferBus) → EFA ID → DM
+  if (events.length === 0) {
+    try {
+      const nameId = await resolveStopId(stop.stopName, apiKey, true);
+      dbg.push(`A3 StopFinder type_sf=any "${stop.stopName}" preferBus → efaId=${nameId}`);
+      if (nameId) {
+        const e = await getDepartures(nameId, apiKey, dtOpts);
+        dbg.push(`A3 DM type_dm=stop name_dm=${nameId}: ${e.length} events`);
+        if (e.length > 0) { events = e; usedId = nameId; }
+      }
+    } catch (err) { dbg.push(`A3 failed: ${err}`); }
+  }
+
+  // 4. DM with stop name + type_dm=any (DM name-search)
+  if (events.length === 0) {
+    try {
+      const e = await getDepartures(stop.stopName, apiKey, { ...dtOpts, typeDm: "any" });
+      dbg.push(`A4 DM type_dm=any name_dm="${stop.stopName}": ${e.length} events`);
+      if (e.length > 0) { events = e; usedId = `any:${stop.stopName}`; }
+    } catch (err) { dbg.push(`A4 failed: ${err}`); }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const allRouteNums = [...new Set(events.map((e: any) => (e.transportation?.number ?? "?").trim()))];
+  dbg.push(`resolved via "${usedId}" → ${events.length} raw events, routes: ${JSON.stringify(allRouteNums)}`);
+  console.log(`BUS ${stop.stopKey}: ${dbg.join(" | ")}`);
+
+  if (events.length === 0) return { trips: [], debug: dbg };
+
+  // ── Filter ────────────────────────────────────────────────────────────────────
   const now = dtOpts.fromMins ?? nowMinsSydney();
 
-  const sample = events.slice(0, 4).map((e) =>
-    `${e.transportation?.number} "${e.transportation?.description}" dest="${e.transportation?.destination?.name}"`
-  ).join(" | ");
-  console.log(`BUS ${stop.stopKey} [${stop.stopCode}]: ${events.length} events. ${sample}`);
-
-  // Log ALL route numbers from this stop so we can identify the correct filter value
-  const allRouteNums = [...new Set(events.map((e) => (e.transportation?.number ?? "?").trim()))];
-  console.log(`BUS ${stop.stopKey} route numbers seen: ${JSON.stringify(allRouteNums)}`);
-
-  // Filter: correct route, city-bound direction only, 30-min window
-  const inbound = events.filter((ev) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const inbound = events.filter((ev: any) => {
     const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned ?? "";
     if (!depIso) return false;
     const mins = minsUntil(isoToHHMM(depIso), now);
-    // 90-min window: wide enough for CommutePlanner planning queries (from = arriveBy − 2h,
-    // so buses depart up to ~90 min after `from`). TransportCard does its own 60-min trim.
+    // 90-min window so CommutePlanner planning queries (from = arriveBy − 2h) capture all options
     if (mins < 0 || mins > 90) return false;
-    // Route filter
     if (stop.routeFilter.length > 0) {
       const routeNum = (ev.transportation?.number ?? "").trim().toUpperCase();
       if (!stop.routeFilter.map((r) => r.toUpperCase()).includes(routeNum)) return false;
     }
-    // Direction filter — drop buses heading back to Taronga Zoo (return leg of loop)
     const dest = (ev.transportation?.destination?.name ?? "").toLowerCase();
     const desc = (ev.transportation?.description ?? "").toLowerCase();
     if (dest.includes("taronga") || desc.includes("taronga zoo")) return false;
     return true;
   });
 
-  // Deduplicate by departure time (loop service can return same trip twice)
   const seen = new Set<string>();
-  const dedupedInbound = inbound.filter((ev) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const deduped = inbound.filter((ev: any) => {
     const key = ev.departureTimeEstimated ?? ev.departureTimePlanned ?? "";
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 
-  console.log(`BUS ${stop.stopKey}: ${dedupedInbound.length}/${events.length} matched (deduped, city-bound, 30 min window)`);
+  dbg.push(`after filter+dedup: ${deduped.length}/${events.length}`);
 
   const trips = [];
-  for (const ev of dedupedInbound) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const ev of deduped as any[]) {
     const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned;
     if (!depIso) continue;
-    // Offset from terminus to displayed stop (e.g. Taronga Zoo → Whiting Beach Rd = +2 min)
     const terminusDep        = isoToHHMM(depIso);
     const departureTime      = addMins(terminusDep, stop.departureOffsetMins ?? 0);
     const walkToOffice       = stop.walkToOfficeMins ?? BUS_OFFICE_WALK_MINS;
@@ -422,7 +461,7 @@ async function fetchBusStop(
       isRealtime:        !!ev.departureTimeEstimated,
     });
   }
-  return trips;
+  return { trips, debug: dbg };
 }
 
 
@@ -454,17 +493,27 @@ export async function GET(request: Request) {
   ferryResults.forEach((r, i) => {
     if (r.status === "rejected") console.error(`[${FERRY_WHARVES[i].wharfKey}] failed:`, r.reason);
   });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const busDebug: Record<string, string[]> = {};
   busResults.forEach((r, i) => {
-    if (r.status === "rejected") console.error(`[${BUS_STOPS[i].stopKey}] failed:`, r.reason);
+    const key = BUS_STOPS[i].stopKey;
+    if (r.status === "rejected") {
+      console.error(`[${key}] failed:`, r.reason);
+      busDebug[key] = [`rejected: ${r.reason}`];
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      busDebug[key] = (r as any).value.debug ?? [];
+    }
   });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const trips: any[] = [
     ...ferryResults.filter((r) => r.status === "fulfilled").flatMap((r) => (r as any).value),
-    ...busResults.filter((r) => r.status === "fulfilled").flatMap((r) => (r as any).value),
+    ...busResults.filter((r) => r.status === "fulfilled").flatMap((r) => (r as any).value.trips ?? []),
   ];
 
   trips.sort((a, b) => a.departureTime.localeCompare(b.departureTime));
 
-  return Response.json({ trips, isRealtime: true });
+  return Response.json({ trips, isRealtime: true, _busDebug: busDebug });
 }
