@@ -125,15 +125,20 @@ function minsUntil(depHHMM: string, nowMins: number): number {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isInboundFerry(ev: any): boolean {
-  // Trust destination.name first — the description text can say "Circular Quay to Taronga Zoo"
-  // even for inbound services (CCTZ etc), so checking it first causes false negatives.
   const destName = (ev.transportation?.destination?.name ?? "").toLowerCase();
+  const desc    = (ev.transportation?.description    ?? "").toLowerCase();
+
+  // Explicit inbound signals
   if (destName.includes("circular quay") || destName.includes("quay")) return true;
-  if (destName && !destName.includes("quay")) return false;
-  // No destination name — fall back to description
-  const desc = (ev.transportation?.description ?? "").toLowerCase();
   if (desc.includes("to circular quay")) return true;
-  return false;
+
+  // Explicit outbound signals — drop these
+  const outbound = ["manly", "balmoral", "parramatta", "homebush", "cockatoo", "drummoyne"];
+  if (outbound.some((kw) => destName.includes(kw) || desc.includes(kw))) return false;
+
+  // No clear signal — include by default. We query FROM Mosman-area wharves so almost
+  // all departures head towards Circular Quay. Dropping ambiguous trips loses real ferries.
+  return true;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -331,10 +336,16 @@ async function fetchBusStop(
   apiKey: string,
   dtOpts: { itdDate?: string; itdTime?: string; fromMins?: number } = {}
 ) {
-  // Resolve stop code → EFA internal ID via Stop Finder (type_sf=stop is unambiguous).
-  const stopId = await resolveStopByCode(stop.stopCode, apiKey);
-  if (!stopId) throw new Error(`Could not resolve stop code "${stop.stopCode}"`);
-  console.log(`BUS ${stop.stopKey}: code ${stop.stopCode} → EFA id ${stopId}`);
+  // Try stop-code lookup first (unambiguous), fall back to name search.
+  let stopId = await resolveStopByCode(stop.stopCode, apiKey).catch(() => null);
+  if (stopId) {
+    console.log(`BUS ${stop.stopKey}: code ${stop.stopCode} → EFA id ${stopId}`);
+  } else {
+    console.warn(`BUS ${stop.stopKey}: code lookup returned null — trying name search`);
+    stopId = await resolveStopId(stop.stopName, apiKey, true).catch(() => null);
+    if (stopId) console.log(`BUS ${stop.stopKey}: name search → EFA id ${stopId}`);
+  }
+  if (!stopId) throw new Error(`Could not resolve bus stop "${stop.stopCode}" / "${stop.stopName}"`);
   const events = await getDepartures(stopId, apiKey, dtOpts);
   const now = dtOpts.fromMins ?? nowMinsSydney();
 
@@ -352,7 +363,9 @@ async function fetchBusStop(
     const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned ?? "";
     if (!depIso) return false;
     const mins = minsUntil(isoToHHMM(depIso), now);
-    if (mins < 0 || mins > 30) return false;
+    // 90-min window: wide enough for CommutePlanner planning queries (from = arriveBy − 2h,
+    // so buses depart up to ~90 min after `from`). TransportCard does its own 60-min trim.
+    if (mins < 0 || mins > 90) return false;
     // Route filter
     if (stop.routeFilter.length > 0) {
       const routeNum = (ev.transportation?.number ?? "").trim().toUpperCase();
