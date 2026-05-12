@@ -189,7 +189,6 @@ async function resolveStopId(
   );
 
   if (preferBus) {
-    // Prefer bus stops (product class 5)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const busStop = locations.find((l: any) =>
       (l.productClasses as number[] ?? []).includes(5)
@@ -197,12 +196,41 @@ async function resolveStopId(
     return (busStop ?? locations[0])?.id ?? null;
   }
 
-  // Prefer ferry stops (product class 9)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ferryStop = locations.find((l: any) =>
     (l.productClasses as number[] ?? []).includes(9)
   );
   return (ferryStop ?? locations[0])?.id ?? null;
+}
+
+// Resolve a stop by its TfNSW stop code (e.g. "208858") using type_sf=stop.
+// This bypasses name-matching ambiguity and returns the EFA internal ID directly.
+async function resolveStopByCode(stopCode: string, apiKey: string): Promise<string | null> {
+  const url = new URL(STOP_FINDER);
+  url.searchParams.set("outputFormat",      "rapidJSON");
+  url.searchParams.set("coordOutputFormat", "EPSG:4326");
+  url.searchParams.set("type_sf",           "stop");
+  url.searchParams.set("name_sf",           stopCode);
+  url.searchParams.set("TfNSWSF",           "true");
+
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `apikey ${apiKey}` },
+    next: { revalidate: 86400 },
+  });
+  if (!res.ok) { console.warn(`StopFinder(stop) ${res.status} for code "${stopCode}"`); return null; }
+  const data = await res.json();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const locations: any[] = data?.locations ?? [];
+
+  console.log(
+    `StopFinder(stop) code="${stopCode}": ${locations.length} results — ` +
+    locations.slice(0, 3).map(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (l: any) => `"${l.name}" id=${l.id} classes=${JSON.stringify(l.productClasses)}`
+    ).join(" | ")
+  );
+
+  return locations[0]?.id ?? null;
 }
 
 // ── Departure Monitor helper ──────────────────────────────────────────────────
@@ -287,10 +315,12 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
 // ── Fetch bus stop ────────────────────────────────────────────────────────────
 
 async function fetchBusStop(stop: typeof BUS_STOPS[0], apiKey: string) {
-  const stopId = stop.stopCode;
-  console.log(`BUS ${stop.stopKey}: querying stop code ${stopId} via type_dm=any`);
+  // Use type_sf=stop to resolve the TfNSW stop code → EFA internal ID
+  const stopId = await resolveStopByCode(stop.stopCode, apiKey);
+  if (!stopId) throw new Error(`Could not resolve stop code ${stop.stopCode}`);
+  console.log(`BUS ${stop.stopKey}: code ${stop.stopCode} → EFA id ${stopId}`);
 
-  const events = await getDepartures(stopId, apiKey, "any");
+  const events = await getDepartures(stopId, apiKey, "stop");
   const now = nowMinsSydney();
 
   const sample = events.slice(0, 4).map((e) =>
