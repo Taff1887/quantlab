@@ -1,12 +1,11 @@
-// TfNSW Departure Monitor — ferries + Bradleys Head Rd buses
-// Step 1: Stop Finder resolves exact stop ID (cached 24 h)
-// Step 2: Departure Monitor returns departures — inbound to city only
+// TfNSW — ferries via Departure Monitor, buses via Trip Planner
 
 export const revalidate = 30;
 
-const STOP_FINDER = "https://api.transport.nsw.gov.au/v1/tp/stop_finder";
-const DEP_MON     = "https://api.transport.nsw.gov.au/v1/tp/departure_mon";
-const SYD_TZ      = "Australia/Sydney";
+const STOP_FINDER   = "https://api.transport.nsw.gov.au/v1/tp/stop_finder";
+const DEP_MON       = "https://api.transport.nsw.gov.au/v1/tp/departure_mon";
+const TRIP_PLANNER  = "https://api.transport.nsw.gov.au/v1/tp/trip";
+const SYD_TZ        = "Australia/Sydney";
 
 // Walk from Circular Quay ferry wharf → 1 Farrer Place
 const FERRY_OFFICE_WALK_MINS = 8;
@@ -69,18 +68,18 @@ const FERRY_WHARVES = [
 
 const BUS_STOPS = [
   {
-    stopCode:          "208858",   // TfNSW stop code, resolved via type_sf=stop
-    stopKey:           "bus-b100",
-    stopName:          "Bradleys Head Rd at Whiting Beach Rd",
-    departureOffsetMins: 0,
-    routeFilter:       ["100"],
-    walkMins:          10,
-    walkDistanceM:     700,
-    driveMins:         3,
-    driveDistanceM:    450,
-    transitMins:       34,   // Bradleys Head Rd → Lang Park, York St
-    destinationStop:   "Lang Park, York St",
-    walkToOfficeMins:  11,   // Lang Park, York St → 1 Farrer Place
+    stopCode:            "208858",   // TfNSW public stop code (Bradleys Head Rd at Whiting Beach Rd)
+    destinationStopCode: "2000133",  // Lang Park, York St (Stop 2000133)
+    stopKey:             "bus-b100",
+    stopName:            "Bradleys Head Rd at Whiting Beach Rd",
+    routeFilter:         ["100"],
+    walkMins:            10,
+    walkDistanceM:       700,
+    driveMins:           3,
+    driveDistanceM:      450,
+    transitMins:         34,   // Bradleys Head Rd → Lang Park, York St
+    destinationStop:     "Lang Park, York St",
+    walkToOfficeMins:    11,   // Lang Park, York St → 1 Farrer Place
   },
 ];
 
@@ -329,117 +328,110 @@ async function fetchWharf(
   return trips;
 }
 
-// ── Fetch bus stop ────────────────────────────────────────────────────────────
+// ── Fetch bus trips via Trip Planner ──────────────────────────────────────────
+// Uses /v1/tp/trip (origin → destination) instead of Departure Monitor.
+// This sidesteps EFA stop ID format issues — we just pass the public stop codes.
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchBusStop(
+async function fetchBusTrips(
   stop: typeof BUS_STOPS[0],
   apiKey: string,
   dtOpts: { itdDate?: string; itdTime?: string; fromMins?: number } = {}
 ): Promise<{ trips: object[]; debug: string[] }> {
   const dbg: string[] = [];
-
-  // ── Try four approaches in order until we get events ────────────────────────
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let events: any[] = [];
-  let usedId = "";
-
-  // 1. DM directly with public stop code + type_dm=stop
-  //    (some TfNSW DM versions accept the 6-digit public code as a global stop ID)
-  if (events.length === 0) {
-    try {
-      const e = await getDepartures(stop.stopCode, apiKey, { ...dtOpts, typeDm: "stop" });
-      dbg.push(`A1 DM type_dm=stop name_dm=${stop.stopCode}: ${e.length} events`);
-      if (e.length > 0) { events = e; usedId = stop.stopCode; }
-    } catch (err) { dbg.push(`A1 failed: ${err}`); }
-  }
-
-  // 2. Stop Finder (type_sf=stop) → EFA internal ID → DM
-  if (events.length === 0) {
-    try {
-      const efaId = await resolveStopByCode(stop.stopCode, apiKey);
-      dbg.push(`A2 StopFinder type_sf=stop "${stop.stopCode}" → efaId=${efaId}`);
-      if (efaId && efaId !== stop.stopCode) {
-        const e = await getDepartures(efaId, apiKey, dtOpts);
-        dbg.push(`A2 DM type_dm=stop name_dm=${efaId}: ${e.length} events`);
-        if (e.length > 0) { events = e; usedId = efaId; }
-      }
-    } catch (err) { dbg.push(`A2 failed: ${err}`); }
-  }
-
-  // 3. Stop Finder (type_sf=any + stop name, preferBus) → EFA ID → DM
-  if (events.length === 0) {
-    try {
-      const nameId = await resolveStopId(stop.stopName, apiKey, true);
-      dbg.push(`A3 StopFinder type_sf=any "${stop.stopName}" preferBus → efaId=${nameId}`);
-      if (nameId) {
-        const e = await getDepartures(nameId, apiKey, dtOpts);
-        dbg.push(`A3 DM type_dm=stop name_dm=${nameId}: ${e.length} events`);
-        if (e.length > 0) { events = e; usedId = nameId; }
-      }
-    } catch (err) { dbg.push(`A3 failed: ${err}`); }
-  }
-
-  // 4. DM with stop name + type_dm=any (DM name-search)
-  if (events.length === 0) {
-    try {
-      const e = await getDepartures(stop.stopName, apiKey, { ...dtOpts, typeDm: "any" });
-      dbg.push(`A4 DM type_dm=any name_dm="${stop.stopName}": ${e.length} events`);
-      if (e.length > 0) { events = e; usedId = `any:${stop.stopName}`; }
-    } catch (err) { dbg.push(`A4 failed: ${err}`); }
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const allRouteNums = [...new Set(events.map((e: any) => (e.transportation?.number ?? "?").trim()))];
-  dbg.push(`resolved via "${usedId}" → ${events.length} raw events, routes: ${JSON.stringify(allRouteNums)}`);
-  console.log(`BUS ${stop.stopKey}: ${dbg.join(" | ")}`);
-
-  if (events.length === 0) return { trips: [], debug: dbg };
-
-  // ── Filter ────────────────────────────────────────────────────────────────────
   const now = dtOpts.fromMins ?? nowMinsSydney();
 
+  // Try origin specs in order until we get Route 100 journeys
+  const originAttempts = [
+    { type: "stop", name: stop.stopCode },   // raw public stop code
+    { type: "any",  name: stop.stopName },   // full stop name text search
+    { type: "any",  name: stop.stopCode },   // stop code as text search
+  ];
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const inbound = events.filter((ev: any) => {
-    const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned ?? "";
-    if (!depIso) return false;
-    const mins = minsUntil(isoToHHMM(depIso), now);
-    // 90-min window so CommutePlanner planning queries (from = arriveBy − 2h) capture all options
-    if (mins < 0 || mins > 90) return false;
-    if (stop.routeFilter.length > 0) {
-      const routeNum = (ev.transportation?.number ?? "").trim().toUpperCase();
-      if (!stop.routeFilter.map((r) => r.toUpperCase()).includes(routeNum)) return false;
+  let route100Journeys: any[] = [];
+
+  for (const origin of originAttempts) {
+    if (route100Journeys.length > 0) break;
+    try {
+      const url = new URL(TRIP_PLANNER);
+      url.searchParams.set("outputFormat",      "rapidJSON");
+      url.searchParams.set("coordOutputFormat", "EPSG:4326");
+      url.searchParams.set("depArrMacro",       "dep");
+      url.searchParams.set("type_origin",       origin.type);
+      url.searchParams.set("name_origin",       origin.name);
+      url.searchParams.set("type_destination",  "stop");
+      url.searchParams.set("name_destination",  stop.destinationStopCode);
+      url.searchParams.set("calcNumberOfTrips", "10");
+      url.searchParams.set("TfNSWTR",           "true");
+      if (dtOpts.itdDate) url.searchParams.set("itdDate", dtOpts.itdDate);
+      if (dtOpts.itdTime) url.searchParams.set("itdTime", dtOpts.itdTime);
+
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `apikey ${apiKey}` },
+        next: { revalidate: 30 },
+      });
+
+      if (!res.ok) {
+        dbg.push(`TP origin=${origin.type}:"${origin.name}" → HTTP ${res.status}`);
+        continue;
+      }
+
+      const data = await res.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const journeys: any[] = data?.journeys ?? [];
+
+      // Keep only Route 100 journeys (single bus leg, matching routeFilter)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const matched = journeys.filter((j: any) => {
+        const leg = j.legs?.[0];
+        const routeNum = (leg?.transportation?.number ?? "").trim().toUpperCase();
+        return stop.routeFilter.map((r) => r.toUpperCase()).includes(routeNum);
+      });
+
+      dbg.push(`TP origin=${origin.type}:"${origin.name}" → ${journeys.length} journeys, ${matched.length} Route 100`);
+      if (matched.length > 0) route100Journeys = matched;
+    } catch (err) {
+      dbg.push(`TP origin=${origin.type}:"${origin.name}" error: ${err}`);
     }
-    const dest = (ev.transportation?.destination?.name ?? "").toLowerCase();
-    const desc = (ev.transportation?.description ?? "").toLowerCase();
-    if (dest.includes("taronga") || desc.includes("taronga zoo")) return false;
-    return true;
-  });
+  }
+
+  if (route100Journeys.length === 0) {
+    dbg.push("No Route 100 journeys found");
+    console.log(`BUS ${stop.stopKey}: ${dbg.join(" | ")}`);
+    return { trips: [], debug: dbg };
+  }
 
   const seen = new Set<string>();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const deduped = inbound.filter((ev: any) => {
-    const key = ev.departureTimeEstimated ?? ev.departureTimePlanned ?? "";
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  dbg.push(`after filter+dedup: ${deduped.length}/${events.length}`);
-
   const trips = [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const ev of deduped as any[]) {
-    const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned;
+
+  for (const journey of route100Journeys) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const leg: any = journey.legs?.[0];
+    if (!leg) continue;
+
+    const depIso: string = leg.origin?.departureTimeEstimated ?? leg.origin?.departureTimePlanned ?? "";
     if (!depIso) continue;
-    const terminusDep        = isoToHHMM(depIso);
-    const departureTime      = addMins(terminusDep, stop.departureOffsetMins ?? 0);
+
+    // Deduplicate by ISO departure time
+    if (seen.has(depIso)) continue;
+    seen.add(depIso);
+
+    const departureTime = isoToHHMM(depIso);
+    const mins = minsUntil(departureTime, now);
+    // 90-min window so CommutePlanner (from = arriveBy − 2h) captures all relevant options
+    if (mins < 0 || mins > 90) continue;
+
+    // Drop outbound (Taronga Zoo-bound) legs
+    const dest = (leg.transportation?.destination?.name ?? "").toLowerCase();
+    const desc = (leg.transportation?.description ?? "").toLowerCase();
+    if (dest.includes("taronga") || desc.includes("taronga zoo")) continue;
+
+    const arrIso: string = leg.destination?.arrivalTimeEstimated ?? leg.destination?.arrivalTimePlanned ?? "";
     const walkToOffice       = stop.walkToOfficeMins ?? BUS_OFFICE_WALK_MINS;
-    const destinationArrival = addMins(departureTime, stop.transitMins);
+    const destinationArrival = arrIso ? isoToHHMM(arrIso) : addMins(departureTime, stop.transitMins);
     const officeArrival      = addMins(destinationArrival, walkToOffice);
     const totalMins          = stop.walkMins + stop.transitMins + walkToOffice;
-    const routeNum           = (ev.transportation?.number ?? "").trim();
+    const routeNum           = (leg.transportation?.number ?? "").trim();
     const routeName          = routeNum ? `Route ${routeNum} to ${stop.destinationStop}` : `Bus to ${stop.destinationStop}`;
 
     trips.push({
@@ -458,9 +450,12 @@ async function fetchBusStop(
       totalMins,
       leaveByWalking:    subMins(departureTime, stop.walkMins + 2),
       leaveByDriving:    subMins(departureTime, stop.driveMins + 2),
-      isRealtime:        !!ev.departureTimeEstimated,
+      isRealtime:        !!(leg.origin?.departureTimeEstimated),
     });
   }
+
+  dbg.push(`Final: ${trips.length} trips after window+direction filter`);
+  console.log(`BUS ${stop.stopKey}: ${dbg.join(" | ")}`);
   return { trips, debug: dbg };
 }
 
@@ -487,7 +482,7 @@ export async function GET(request: Request) {
 
   const [ferryResults, busResults] = await Promise.all([
     Promise.allSettled(FERRY_WHARVES.map((w) => fetchWharf(w, apiKey, dtOpts))),
-    Promise.allSettled(BUS_STOPS.map((s) => fetchBusStop(s, apiKey, dtOpts))),
+    Promise.allSettled(BUS_STOPS.map((s) => fetchBusTrips(s, apiKey, dtOpts))),
   ]);
 
   ferryResults.forEach((r, i) => {
