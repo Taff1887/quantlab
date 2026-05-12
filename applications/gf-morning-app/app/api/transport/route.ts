@@ -68,18 +68,20 @@ const FERRY_WHARVES = [
 
 const BUS_STOPS = [
   {
-    stopCode:            "208858",   // TfNSW public stop code (Bradleys Head Rd at Whiting Beach Rd)
-    destinationStopCode: "2000133",  // Lang Park, York St (Stop 2000133)
-    stopKey:             "bus-b100",
-    stopName:            "Bradleys Head Rd at Whiting Beach Rd",
-    routeFilter:         ["100"],
-    walkMins:            10,
-    walkDistanceM:       700,
-    driveMins:           3,
-    driveDistanceM:      450,
-    transitMins:         34,   // Bradleys Head Rd → Lang Park, York St
-    destinationStop:     "Lang Park, York St",
-    walkToOfficeMins:    11,   // Lang Park, York St → 1 Farrer Place
+    // Route 100 starts at Taronga Zoo Ferry — resolve via that wharf (always works).
+    // The DM for the ferry wharf returns both ferry events AND Route 100 bus events.
+    // We filter to product class 5 (bus) + route 100 + city-bound direction.
+    resolveVia:      "Taronga Zoo Ferry Wharf",
+    stopKey:         "bus-b100",
+    stopName:        "Bradleys Head Rd at Whiting Beach Rd",
+    routeFilter:     ["100"],
+    walkMins:        10,
+    walkDistanceM:   700,
+    driveMins:       3,
+    driveDistanceM:  450,
+    transitMins:     34,
+    destinationStop: "Lang Park, York St",
+    walkToOfficeMins: 11,
   },
 ];
 
@@ -326,8 +328,10 @@ async function fetchWharf(
 }
 
 // ── Fetch bus stop ────────────────────────────────────────────────────────────
-// Uses Departure Monitor (same as ferries). Tries multiple stop ID candidates
-// in order, uses the first that returns Route 100 events.
+// Same pattern as ferries: resolve a known-working stop, then filter events
+// by product class (5 = bus), route number, window, and direction.
+// Route 100 starts at Taronga Zoo Ferry, so its departures appear in the DM
+// results for that wharf — exactly like how 230/565n appear at other wharves.
 
 async function fetchBusStop(
   stop: typeof BUS_STOPS[0],
@@ -336,56 +340,42 @@ async function fetchBusStop(
 ): Promise<{ trips: object[]; debug: string[] }> {
   const dbg: string[] = [];
 
-  // Build candidate EFA IDs to try. Use no-cache so we never get stuck on a
-  // wrong stop ID from a previous deployment's cached Stop Finder result.
-  const candidates: { label: string; id: string }[] = [];
+  const stopId = await resolveStopId(stop.resolveVia, apiKey, false);
+  if (!stopId) throw new Error(`Could not resolve "${stop.resolveVia}"`);
+  dbg.push(`resolved "${stop.resolveVia}" → ${stopId}`);
 
-  const idByName = await resolveStopId(stop.stopName, apiKey, true, 0).catch(() => null);
-  if (idByName) candidates.push({ label: `name(${idByName})`, id: idByName });
-
-  const idByCode = await resolveStopByCode(stop.stopCode, apiKey).catch(() => null);
-  if (idByCode && idByCode !== idByName) candidates.push({ label: `code(${idByCode})`, id: idByCode });
-
-  // Also try the raw public stop code directly with type_dm=stop
-  if (stop.stopCode !== idByName && stop.stopCode !== idByCode) {
-    candidates.push({ label: `raw(${stop.stopCode})`, id: stop.stopCode });
-  }
-
-  dbg.push(`candidates: ${candidates.map((c) => c.label).join(" | ")}`);
+  const events = await getDepartures(stopId, apiKey, dtOpts);
+  dbg.push(`DM returned ${events.length} events`);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let events: any[] = [];
-
-  for (const candidate of candidates) {
-    try {
-      const evs = await getDepartures(candidate.id, apiKey, dtOpts);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const route100Count = evs.filter((ev: any) => {
-        const n = (ev.transportation?.number ?? "").trim().toUpperCase();
-        return stop.routeFilter.map((r) => r.toUpperCase()).includes(n);
-      }).length;
-      dbg.push(`${candidate.label}: ${evs.length} events, ${route100Count} Route 100`);
-      if (route100Count > 0) { events = evs; break; }
-    } catch (err) {
-      dbg.push(`${candidate.label}: error ${err}`);
-    }
-  }
-
+  const allRoutes = [...new Set(events.map((e: any) => `${e.transportation?.product?.class}:${e.transportation?.number ?? "?"}`))];
+  dbg.push(`routes seen: ${allRoutes.join(", ")}`);
   console.log(`BUS ${stop.stopKey}: ${dbg.join(" | ")}`);
 
-  if (events.length === 0) return { trips: [], debug: dbg };
-
-  // ── Filter + build trips ──────────────────────────────────────────────────
   const now = dtOpts.fromMins ?? nowMinsSydney();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const inbound = events.filter((ev: any) => {
+    // Must be a bus (product class 5), not a ferry or train
+    const cls = ev.transportation?.product?.class;
+    if (cls != null && cls !== 5 && cls !== 11) return false;
+
+    // Route filter
+    const routeNum = (ev.transportation?.number ?? "").trim().toUpperCase();
+    if (!stop.routeFilter.map((r) => r.toUpperCase()).includes(routeNum)) return false;
+
+    // Time window — 90 min for CommutePlanner planning queries
     const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned ?? "";
     if (!depIso) return false;
     const mins = minsUntil(isoToHHMM(depIso), now);
-    // 90-min window — wide enough for CommutePlanner (from = arriveBy − 2h)
     if (mins < 0 || mins > 90) return false;
-    return isInboundBus(ev, stop.routeFilter);
+
+    // Drop outbound (Taronga Zoo-bound) return legs
+    const dest = (ev.transportation?.destination?.name ?? "").toLowerCase();
+    const desc = (ev.transportation?.description ?? "").toLowerCase();
+    if (dest.includes("taronga") || desc.includes("taronga zoo")) return false;
+
+    return true;
   });
 
   const seen = new Set<string>();
