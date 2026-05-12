@@ -49,12 +49,6 @@ export default function WeatherCard() {
   // Morning label
   const morningLabel = morningPassed ? "🌅 This morning (7–9am)" : "🌅 Morning (7–9am)";
 
-  // Umbrella day suffix — flows naturally
-  function umbrellaSuffix() {
-    if (selectedIdx === 0) return "";
-    if (day.label === "Tomorrow") return " tomorrow";
-    return ` on ${day.label}`;
-  }
 
   return (
     <div className="card">
@@ -144,7 +138,7 @@ export default function WeatherCard() {
           <span className="text-lg">{umbrella === "bring" ? "☔" : "✅"}</span>
           <span>
             {umbrella === "bring"
-              ? `Don't get wet pookie, bring an umbrella ☔${umbrellaSuffix()}`
+              ? "Don't get wet pookie, bring an umbrella ☔"
               : "No umbrella needed"}
           </span>
         </div>

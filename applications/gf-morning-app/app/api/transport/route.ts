@@ -1,9 +1,6 @@
-// TfNSW Departure Monitor
-// Step 1: Stop Finder resolves exact ferry-wharf stop ID (cached 24 h)
-// Step 2: Departure Monitor returns departures — filter to INBOUND (→ Circular Quay) only
-// Direction detection: TfNSW description is "[Route] [Origin] to [Destination]"
-//   e.g. "Mosman Bay Mosman Bay to Circular Quay"  → inbound  ✓
-//        "Mosman Bay Circular Quay to Mosman Bay"   → outbound ✗
+// TfNSW Departure Monitor — ferries + Bradleys Head Rd buses
+// Step 1: Stop Finder resolves exact stop ID (cached 24 h)
+// Step 2: Departure Monitor returns departures — inbound to city only
 
 export const revalidate = 30;
 
@@ -12,7 +9,11 @@ const DEP_MON     = "https://api.transport.nsw.gov.au/v1/tp/departure_mon";
 const SYD_TZ      = "Australia/Sydney";
 
 // Walk from Circular Quay ferry wharf → 1 Farrer Place
-const OFFICE_WALK_MINS = 8;
+const FERRY_OFFICE_WALK_MINS = 8;
+// Walk from Wynyard bus stop → 1 Farrer Place
+const BUS_OFFICE_WALK_MINS = 10;
+
+// ── Ferry wharves ─────────────────────────────────────────────────────────────
 
 const FERRY_WHARVES = [
   {
@@ -62,6 +63,38 @@ const FERRY_WHARVES = [
   },
 ];
 
+// ── Bus stops — Bradleys Head Rd only ─────────────────────────────────────────
+// Route 238: Taronga Zoo / Bradleys Head Rd → Wynyard Station
+
+const BUS_STOPS = [
+  {
+    searchName:      "Bradleys Head Rd near Morella Rd",
+    stopKey:         "bus-238-morella",
+    stopName:        "Bradleys Head Rd (near Morella Rd)",
+    routeFilter:     ["238"],
+    walkMins:        8,
+    walkDistanceM:   550,
+    driveMins:       3,
+    driveDistanceM:  400,
+    transitMins:     35,   // Bradleys Head Rd → Wynyard
+    destinationStop: "Wynyard",
+  },
+  {
+    searchName:      "Bradleys Head Rd near Silex Rd",
+    stopKey:         "bus-238-silex",
+    stopName:        "Bradleys Head Rd (near Silex Rd)",
+    routeFilter:     ["238"],
+    walkMins:        12,
+    walkDistanceM:   850,
+    driveMins:       4,
+    driveDistanceM:  650,
+    transitMins:     33,
+    destinationStop: "Wynyard",
+  },
+];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function pad(n: number) { return String(n).padStart(2, "0"); }
 
 function isoToHHMM(iso: string): string {
@@ -83,31 +116,63 @@ function subMins(hhmm: string, mins: number): string {
   return `${pad(Math.floor(t / 60) % 24)}:${pad(t % 60)}`;
 }
 
-// ── Direction filter ──────────────────────────────────────────────────────────
-// TfNSW description field is "[Route Name] [Origin] to [Destination]"
-// We keep only departures heading TO Circular Quay.
+function nowMinsSydney(): number {
+  const t = new Date().toLocaleTimeString("en-AU", {
+    timeZone: SYD_TZ, hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function minsUntil(depHHMM: string, nowMins: number): number {
+  const [h, m] = depHHMM.split(":").map(Number);
+  const depMins = h * 60 + m;
+  return depMins >= nowMins ? depMins - nowMins : depMins + 1440 - nowMins;
+}
+
+// ── Direction filters ─────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function isInboundToCity(ev: any): boolean {
+function isInboundFerry(ev: any): boolean {
   const desc = (ev.transportation?.description ?? "").toLowerCase();
-
-  // Definitive: description ends in "to circular quay" → inbound ✓
   if (desc.includes("to circular quay")) return true;
-  // Definitive: description says "circular quay to [somewhere]" → outbound ✗
   if (desc.includes("circular quay to ")) return false;
-
-  // Fallback: check the destination stop name
   const destName = (ev.transportation?.destination?.name ?? "").toLowerCase();
   if (destName.includes("circular quay") || destName.includes("quay")) return true;
   if (destName && !destName.includes("quay")) return false;
-
-  // No info — include rather than drop
   return true;
 }
 
-// ── Stop Finder (cached 24 h) ─────────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isInboundBus(ev: any, routeFilter: string[]): boolean {
+  const routeNum = (ev.transportation?.number ?? "").trim();
+  // Must be one of our allowed routes
+  if (routeFilter.length > 0 && !routeFilter.includes(routeNum)) return false;
 
-async function resolveStopId(searchName: string, apiKey: string): Promise<string | null> {
+  const desc    = (ev.transportation?.description ?? "").toLowerCase();
+  const dest    = (ev.transportation?.destination?.name ?? "").toLowerCase();
+
+  // City-bound keywords
+  const cityKeywords = ["wynyard", "city", "circular quay", "central", "cbd", "town hall"];
+  const isCityBound  = cityKeywords.some((kw) => desc.includes(kw) || dest.includes(kw));
+  if (isCityBound) return true;
+
+  // Outbound keywords — drop these
+  const outboundKeywords = ["taronga zoo", "balmoral", "manly", "chatswood", "mosman junction"];
+  const isOutbound = outboundKeywords.some((kw) => desc.includes(kw) || dest.includes(kw));
+  if (isOutbound) return false;
+
+  // Unknown — include rather than drop
+  return true;
+}
+
+// ── Stop Finder ───────────────────────────────────────────────────────────────
+
+async function resolveStopId(
+  searchName: string,
+  apiKey: string,
+  preferBus = false
+): Promise<string | null> {
   const url = new URL(STOP_FINDER);
   url.searchParams.set("outputFormat",      "rapidJSON");
   url.searchParams.set("coordOutputFormat", "EPSG:4326");
@@ -119,10 +184,7 @@ async function resolveStopId(searchName: string, apiKey: string): Promise<string
     headers: { Authorization: `apikey ${apiKey}` },
     next: { revalidate: 86400 },
   });
-  if (!res.ok) {
-    console.warn(`Stop Finder ${res.status} for "${searchName}"`);
-    return null;
-  }
+  if (!res.ok) { console.warn(`Stop Finder ${res.status} for "${searchName}"`); return null; }
   const data = await res.json();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const locations: any[] = data?.locations ?? [];
@@ -135,6 +197,15 @@ async function resolveStopId(searchName: string, apiKey: string): Promise<string
     ).join(" | ")
   );
 
+  if (preferBus) {
+    // Prefer bus stops (product class 5)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const busStop = locations.find((l: any) =>
+      (l.productClasses as number[] ?? []).includes(5)
+    );
+    return (busStop ?? locations[0])?.id ?? null;
+  }
+
   // Prefer ferry stops (product class 9)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ferryStop = locations.find((l: any) =>
@@ -143,12 +214,9 @@ async function resolveStopId(searchName: string, apiKey: string): Promise<string
   return (ferryStop ?? locations[0])?.id ?? null;
 }
 
-// ── Departure Monitor ─────────────────────────────────────────────────────────
+// ── Departure Monitor helper ──────────────────────────────────────────────────
 
-async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
-  const stopId = await resolveStopId(wharf.searchName, apiKey);
-  if (!stopId) throw new Error(`No stop found for ${wharf.wharfKey}`);
-
+async function getDepartures(stopId: string, apiKey: string) {
   const url = new URL(DEP_MON);
   url.searchParams.set("outputFormat",          "rapidJSON");
   url.searchParams.set("coordOutputFormat",     "EPSG:4326");
@@ -163,98 +231,148 @@ async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
     headers: { Authorization: `apikey ${apiKey}` },
     next: { revalidate: 30 },
   });
-  if (!res.ok) throw new Error(`TfNSW ${res.status} for ${wharf.wharfKey}`);
+  if (!res.ok) throw new Error(`TfNSW ${res.status} stopId=${stopId}`);
   const data = await res.json();
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const events: any[] = data?.stopEvents ?? [];
+  return (data?.stopEvents ?? []) as any[];
+}
 
-  // Log a sample of what came back for debugging
-  const sample = events.slice(0, 6).map((e) =>
-    `${e.transportation?.number} "${e.transportation?.description}" → dest="${e.transportation?.destination?.name}"`
+// ── Fetch ferry wharf ─────────────────────────────────────────────────────────
+
+async function fetchWharf(wharf: typeof FERRY_WHARVES[0], apiKey: string) {
+  const stopId = await resolveStopId(wharf.searchName, apiKey, false);
+  if (!stopId) throw new Error(`No stop found for ${wharf.wharfKey}`);
+
+  const events = await getDepartures(stopId, apiKey);
+  const now = nowMinsSydney();
+
+  const sample = events.slice(0, 4).map((e) =>
+    `${e.transportation?.number} "${e.transportation?.description}"`
   ).join(" | ");
   console.log(`${wharf.wharfKey} [${stopId}]: ${events.length} events. ${sample}`);
 
-  // The stop is already confirmed as a ferry wharf via Stop Finder.
-  // Keep only inbound services (direction filter), then cap to next 2 hours.
-  const nowSydney = new Date().toLocaleTimeString("en-AU", {
-    timeZone: SYD_TZ, hour: "2-digit", minute: "2-digit", hour12: false,
-  });
-  const [nowH, nowM] = nowSydney.split(":").map(Number);
-  const nowTotalMins = nowH * 60 + nowM;
-
   const inbound = events.filter((ev) => {
-    if (!isInboundToCity(ev)) return false;
+    if (!isInboundFerry(ev)) return false;
     const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned ?? "";
     if (!depIso) return false;
-    const dep = isoToHHMM(depIso);
-    const [dh, dm] = dep.split(":").map(Number);
-    const depMins = dh * 60 + dm;
-    // How many minutes until departure (handle midnight wrap)
-    const minsUntil = depMins >= nowTotalMins
-      ? depMins - nowTotalMins
-      : depMins + 1440 - nowTotalMins;
-    return minsUntil >= 0 && minsUntil <= 120; // next 2 hours only
+    const mins = minsUntil(isoToHHMM(depIso), now);
+    return mins >= 0 && mins <= 120;
   });
-
-  console.log(`${wharf.wharfKey}: ${inbound.length}/${events.length} inbound within 2 h`);
 
   const trips = [];
   for (const ev of inbound) {
     const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned;
     if (!depIso) continue;
-
     const departureTime      = isoToHHMM(depIso);
     const destinationArrival = addMins(departureTime, wharf.crossingMins);
-    const officeArrival      = addMins(destinationArrival, OFFICE_WALK_MINS);
-    const totalMins          = wharf.walkMins + wharf.crossingMins + OFFICE_WALK_MINS;
-
-    // Clean route name — route number only (e.g. "F9", "CCTZ", "F6")
-    const routeNum = (ev.transportation?.number ?? "").trim();
-    const routeName = routeNum ? `${routeNum} to Circular Quay` : "Ferry to Circular Quay";
+    const officeArrival      = addMins(destinationArrival, FERRY_OFFICE_WALK_MINS);
+    const totalMins          = wharf.walkMins + wharf.crossingMins + FERRY_OFFICE_WALK_MINS;
+    const routeNum           = (ev.transportation?.number ?? "").trim();
+    const routeName          = routeNum ? `${routeNum} to Circular Quay` : "Ferry to Circular Quay";
 
     trips.push({
-      id:               `${wharf.wharfKey.toLowerCase().replace(/\s+/g, "-")}-${departureTime}`,
-      mode:             "ferry" as const,
-      wharf:            wharf.wharfKey,
+      id:                `${wharf.wharfKey.toLowerCase().replace(/\s+/g, "-")}-${departureTime}`,
+      mode:              "ferry" as const,
+      wharf:             wharf.wharfKey,
       routeName,
-      stopName:         `${wharf.wharfKey} Ferry Wharf`,
-      walkMins:         wharf.walkMins,
-      walkDistanceM:    wharf.walkDistanceM,
-      driveMins:        wharf.driveMins,
-      driveDistanceM:   wharf.driveDistanceM,
+      stopName:          `${wharf.wharfKey} Ferry Wharf`,
+      walkMins:          wharf.walkMins,
+      walkDistanceM:     wharf.walkDistanceM,
+      driveMins:         wharf.driveMins,
+      driveDistanceM:    wharf.driveDistanceM,
       departureTime,
-      destinationStop:  "Circular Quay",
+      destinationStop:   "Circular Quay",
       destinationArrival,
       officeArrival,
       totalMins,
-      leaveByWalking:   subMins(departureTime, wharf.walkMins + 2),
-      leaveByDriving:   subMins(departureTime, wharf.driveMins + 2),
-      isRealtime:       !!ev.departureTimeEstimated,
+      leaveByWalking:    subMins(departureTime, wharf.walkMins + 2),
+      leaveByDriving:    subMins(departureTime, wharf.driveMins + 2),
+      isRealtime:        !!ev.departureTimeEstimated,
     });
   }
   return trips;
 }
 
+// ── Fetch bus stop ────────────────────────────────────────────────────────────
+
+async function fetchBusStop(stop: typeof BUS_STOPS[0], apiKey: string) {
+  const stopId = await resolveStopId(stop.searchName, apiKey, true);
+  if (!stopId) throw new Error(`No stop found for ${stop.stopKey}`);
+
+  const events = await getDepartures(stopId, apiKey);
+  const now = nowMinsSydney();
+
+  const sample = events.slice(0, 4).map((e) =>
+    `${e.transportation?.number} "${e.transportation?.description}" dest="${e.transportation?.destination?.name}"`
+  ).join(" | ");
+  console.log(`BUS ${stop.stopKey} [${stopId}]: ${events.length} events. ${sample}`);
+
+  const inbound = events.filter((ev) => {
+    if (!isInboundBus(ev, stop.routeFilter)) return false;
+    const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned ?? "";
+    if (!depIso) return false;
+    const mins = minsUntil(isoToHHMM(depIso), now);
+    return mins >= 0 && mins <= 120;
+  });
+
+  console.log(`BUS ${stop.stopKey}: ${inbound.length}/${events.length} inbound within 2 h`);
+
+  const trips = [];
+  for (const ev of inbound) {
+    const depIso: string = ev.departureTimeEstimated ?? ev.departureTimePlanned;
+    if (!depIso) continue;
+    const departureTime      = isoToHHMM(depIso);
+    const destinationArrival = addMins(departureTime, stop.transitMins);
+    const officeArrival      = addMins(destinationArrival, BUS_OFFICE_WALK_MINS);
+    const totalMins          = stop.walkMins + stop.transitMins + BUS_OFFICE_WALK_MINS;
+    const routeNum           = (ev.transportation?.number ?? "").trim();
+    const routeName          = routeNum ? `Route ${routeNum} to ${stop.destinationStop}` : `Bus to ${stop.destinationStop}`;
+
+    trips.push({
+      id:                `${stop.stopKey}-${departureTime}`,
+      mode:              "bus" as const,
+      routeName,
+      stopName:          stop.stopName,
+      walkMins:          stop.walkMins,
+      walkDistanceM:     stop.walkDistanceM,
+      driveMins:         stop.driveMins,
+      driveDistanceM:    stop.driveDistanceM,
+      departureTime,
+      destinationStop:   stop.destinationStop,
+      destinationArrival,
+      officeArrival,
+      totalMins,
+      leaveByWalking:    subMins(departureTime, stop.walkMins + 2),
+      leaveByDriving:    subMins(departureTime, stop.driveMins + 2),
+      isRealtime:        !!ev.departureTimeEstimated,
+    });
+  }
+  return trips;
+}
+
+// ── GET handler ───────────────────────────────────────────────────────────────
+
 export async function GET() {
   const apiKey = process.env.TFNSW_API_KEY;
   if (!apiKey) return Response.json({ error: "NO_KEY", trips: [] }, { status: 200 });
 
-  const results = await Promise.allSettled(
-    FERRY_WHARVES.map((w) => fetchWharf(w, apiKey))
-  );
+  const [ferryResults, busResults] = await Promise.all([
+    Promise.allSettled(FERRY_WHARVES.map((w) => fetchWharf(w, apiKey))),
+    Promise.allSettled(BUS_STOPS.map((s) => fetchBusStop(s, apiKey))),
+  ]);
 
-  results.forEach((r, i) => {
-    if (r.status === "rejected") {
-      console.error(`[${FERRY_WHARVES[i].wharfKey}] failed:`, r.reason);
-    }
+  ferryResults.forEach((r, i) => {
+    if (r.status === "rejected") console.error(`[${FERRY_WHARVES[i].wharfKey}] failed:`, r.reason);
+  });
+  busResults.forEach((r, i) => {
+    if (r.status === "rejected") console.error(`[${BUS_STOPS[i].stopKey}] failed:`, r.reason);
   });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const trips: any[] = results
-    .filter((r) => r.status === "fulfilled")
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .flatMap((r) => (r as any).value);
+  const trips: any[] = [
+    ...ferryResults.filter((r) => r.status === "fulfilled").flatMap((r) => (r as any).value),
+    ...busResults.filter((r) => r.status === "fulfilled").flatMap((r) => (r as any).value),
+  ];
 
   trips.sort((a, b) => a.departureTime.localeCompare(b.departureTime));
 
