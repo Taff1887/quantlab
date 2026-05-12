@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
 import type { Task } from "../types";
 
 const LS_KEY = "tasks_local";
@@ -62,6 +62,12 @@ export default function LifeAdmin() {
 
   async function fetchTasks() {
     setLoading(true);
+    if (!SUPABASE_ENABLED) {
+      setUseLocal(true);
+      setTasks(lsLoad());
+      setLoading(false);
+      return;
+    }
     try {
       const { data, error } = await supabase
         .from("tasks")
@@ -94,7 +100,7 @@ export default function LifeAdmin() {
       createdAt,
     };
 
-    if (useLocal) {
+    if (useLocal || !SUPABASE_ENABLED) {
       const updated = [...tasks, newTask];
       setTasks(updated);
       lsSave(updated);
@@ -121,7 +127,7 @@ export default function LifeAdmin() {
   }
 
   async function toggleTask(id: string, current: boolean) {
-    if (useLocal) {
+    if (useLocal || !SUPABASE_ENABLED) {
       const updated = tasks.map((t) => t.id === id ? { ...t, completed: !current } : t);
       setTasks(updated);
       lsSave(updated);
@@ -139,7 +145,7 @@ export default function LifeAdmin() {
   }
 
   async function deleteTask(id: string) {
-    if (useLocal) {
+    if (useLocal || !SUPABASE_ENABLED) {
       const updated = tasks.filter((t) => t.id !== id);
       setTasks(updated);
       lsSave(updated);
@@ -166,7 +172,7 @@ export default function LifeAdmin() {
     const trimmed = editTitle.trim();
     if (!trimmed) return;
 
-    if (useLocal) {
+    if (useLocal || !SUPABASE_ENABLED) {
       const updated = tasks.map((t) =>
         t.id === id ? { ...t, title: trimmed, dueDate: editDue || undefined } : t
       );

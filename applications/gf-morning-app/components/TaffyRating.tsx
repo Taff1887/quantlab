@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
 
 const LS_KEY = "taffy_ratings_local";
 
@@ -140,6 +140,12 @@ export default function TaffyRating() {
 
   async function fetchRatings() {
     setLoading(true);
+    if (!SUPABASE_ENABLED) {
+      setUseLocal(true);
+      setRatings(lsLoad());
+      setLoading(false);
+      return;
+    }
     try {
       const { data, error } = await supabase
         .from("taffy_ratings")

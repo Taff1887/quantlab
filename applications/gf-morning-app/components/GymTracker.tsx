@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
 import type { GymSession, WorkoutType, GymDetails, ExerciseSet } from "../types";
 
 const LS_KEY = "gym_sessions_local";
@@ -138,8 +138,9 @@ function ExerciseRow({
               <label className="label">Weight (kg)</label>
               <input
                 type="number" min={0}
-                value={value.weight ?? ""}
+                value={value.weight || ""}
                 onChange={(e) => onChange({ ...value, weight: Number(e.target.value) })}
+                onFocus={(e) => e.target.select()}
                 className="input text-sm" placeholder="0"
               />
             </div>
@@ -150,6 +151,7 @@ function ExerciseRow({
               type="number" min={0}
               value={value.reps || ""}
               onChange={(e) => onChange({ ...value, reps: Number(e.target.value) })}
+              onFocus={(e) => e.target.select()}
               className="input text-sm" placeholder="0"
             />
           </div>
@@ -159,6 +161,7 @@ function ExerciseRow({
               type="number" min={0}
               value={value.sets || ""}
               onChange={(e) => onChange({ ...value, sets: Number(e.target.value) })}
+              onFocus={(e) => e.target.select()}
               className="input text-sm" placeholder="0"
             />
           </div>
@@ -188,6 +191,12 @@ export default function GymTracker() {
 
   async function fetchSessions() {
     setLoading(true);
+    if (!SUPABASE_ENABLED) {
+      setUseLocal(true);
+      setSessions(lsLoad());
+      setLoading(false);
+      return;
+    }
     try {
       const { data, error } = await supabase
         .from("gym_sessions")
@@ -462,10 +471,16 @@ export default function GymTracker() {
                 <p className="text-xs text-slate-500 mt-2 italic">&ldquo;{latest.notes}&rdquo;</p>
               )}
             </div>
-            <button onClick={() => openEditForm(latest)}
-              className="text-xs text-emerald-700 border border-emerald-200 rounded-xl px-3 py-1.5 hover:bg-emerald-100 transition-colors flex-shrink-0 ml-3">
-              Edit
-            </button>
+            <div className="flex gap-2 flex-shrink-0 ml-3">
+              <button onClick={() => openEditForm(latest)}
+                className="text-xs text-emerald-700 border border-emerald-200 rounded-xl px-3 py-1.5 hover:bg-emerald-100 transition-colors">
+                Edit
+              </button>
+              <button onClick={() => handleDelete(latest.id)}
+                className="text-xs text-slate-300 hover:text-red-400 border border-slate-100 hover:border-red-200 rounded-xl px-3 py-1.5 transition-colors">
+                ✕
+              </button>
+            </div>
           </div>
         </div>
       ) : (

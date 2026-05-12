@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
 import type { Chore, ChoreStatus } from "../types";
 
 const LS_KEY = "chores_local";
@@ -180,6 +180,11 @@ export default function ChoreCountdown() {
   // ─── fetchChores ────────────────────────────────────────────────────────────
 
   async function fetchChores() {
+    if (!SUPABASE_ENABLED) {
+      setUseLocal(true);
+      setChores(lsLoad());
+      return;
+    }
     try {
       const { data, error } = await supabase.from("chores").select("*");
       if (error) throw error;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
 import type { DateNight } from "../types";
 
 const LS_KEY = "date_nights_local";
@@ -69,6 +69,12 @@ export default function LastDate() {
 
   async function fetchDates() {
     setLoading(true);
+    if (!SUPABASE_ENABLED) {
+      setUseLocal(true);
+      setDates(lsLoad());
+      setLoading(false);
+      return;
+    }
     try {
       const { data, error } = await supabase
         .from("date_nights")
