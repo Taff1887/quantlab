@@ -320,7 +320,6 @@ export default function TaffyRating() {
   if (loading) return <div className="card animate-pulse h-40" />;
 
   const todayEntry = rows.find((r) => r.date === today);
-  const prevEntry = rows.find((r) => r.date !== today);
 
   const cutoff = cutoffDate(historyPeriod);
   const historyRows = rows
@@ -397,31 +396,6 @@ export default function TaffyRating() {
           >
             {savingPast ? "Saving…" : "Save"}
           </button>
-        </div>
-      )}
-
-      {/* Previous rating callout */}
-      {prevEntry && (
-        <div className="mb-4 bg-slate-50 rounded-2xl px-4 py-3">
-          <p className="text-xs text-slate-400 mb-1.5">Previously rated on {formatDate(prevEntry.date)}</p>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-base font-bold px-3 py-1 rounded-xl border ${ratingColor(prevEntry.rating)}`}>
-              {prevEntry.rating}/10 {ratingEmoji(prevEntry.rating)}
-            </span>
-            {prevEntry.feedback && (
-              <button
-                onClick={() => setExpandedNote(expandedNote === prevEntry.date ? null : prevEntry.date)}
-                className="text-xs text-blue-500 font-semibold ml-auto"
-              >
-                {expandedNote === prevEntry.date ? "▲ hide" : "▼ see more"}
-              </button>
-            )}
-          </div>
-          {expandedNote === prevEntry.date && prevEntry.feedback && (
-            <p className="text-xs text-slate-500 italic mt-2 leading-relaxed">
-              &ldquo;{prevEntry.feedback}&rdquo;
-            </p>
-          )}
         </div>
       )}
 
