@@ -1,29 +1,32 @@
 "use client";
 import { useEffect, useState } from "react";
+import TermsPage from "./TermsPage";
 
 const STORAGE_KEY = "mcc_auth";
+const TERMS_KEY   = "mcc_terms_accepted";
 const CORRECT_PIN = process.env.NEXT_PUBLIC_APP_PIN ?? "";
-const PIN_LENGTH = CORRECT_PIN.length || 4;
+const PIN_LENGTH  = CORRECT_PIN.length || 4;
 
 export default function PinGate({ children }: { children: React.ReactNode }) {
-  const [status, setStatus] = useState<"loading" | "locked" | "unlocked">("loading");
-  const [pin, setPin] = useState("");
-  const [shake, setShake] = useState(false);
-  const [error, setError] = useState(false);
+  const [status, setStatus] = useState<"loading" | "locked" | "terms" | "unlocked">("loading");
+  const [pin, setPin]       = useState("");
+  const [shake, setShake]   = useState(false);
+  const [error, setError]   = useState(false);
 
   useEffect(() => {
-    if (!CORRECT_PIN) {
-      setStatus("unlocked");
-      return;
-    }
-    const auth = localStorage.getItem(STORAGE_KEY);
-    setStatus(auth === "true" ? "unlocked" : "locked");
+    if (!CORRECT_PIN) { setStatus("unlocked"); return; }
+    const auth    = localStorage.getItem(STORAGE_KEY);
+    const terms   = localStorage.getItem(TERMS_KEY);
+    if (auth === "true" && terms === "true") { setStatus("unlocked"); return; }
+    if (auth === "true") { setStatus("terms"); return; }
+    setStatus("locked");
   }, []);
 
   function attempt(entered: string) {
     if (entered === CORRECT_PIN) {
       localStorage.setItem(STORAGE_KEY, "true");
-      setStatus("unlocked");
+      const terms = localStorage.getItem(TERMS_KEY);
+      setStatus(terms === "true" ? "unlocked" : "terms");
     } else {
       setShake(true);
       setError(true);
@@ -36,14 +39,19 @@ export default function PinGate({ children }: { children: React.ReactNode }) {
     if (pin.length >= PIN_LENGTH) return;
     const next = pin + digit;
     setPin(next);
-    if (next.length === PIN_LENGTH) {
-      setTimeout(() => attempt(next), 120);
-    }
+    if (next.length === PIN_LENGTH) setTimeout(() => attempt(next), 120);
   }
 
-  if (status === "loading") return <div className="min-h-screen bg-slate-50" />;
-  if (status === "unlocked") return <>{children}</>;
+  function handleAcceptTerms() {
+    localStorage.setItem(TERMS_KEY, "true");
+    setStatus("unlocked");
+  }
 
+  if (status === "loading")  return <div className="min-h-screen bg-slate-50" />;
+  if (status === "unlocked") return <>{children}</>;
+  if (status === "terms")    return <TermsPage onAccept={handleAcceptTerms} />;
+
+  // status === "locked"
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-50 to-indigo-50 flex flex-col items-center justify-center px-6">
       <div className="w-full max-w-xs">
