@@ -91,7 +91,6 @@ function TripRow({ trip, dim }: { trip: ScheduleTrip; dim?: boolean }) {
 interface Results {
   main: ScheduleTrip[];
   justLate: ScheduleTrip[];
-  nearlyLate: ScheduleTrip[];
 }
 
 export default function CommutePlanner() {
@@ -148,15 +147,11 @@ export default function CommutePlanner() {
       .filter((t) => { const a = toMins(t.officeArrival); return a > byMins && a <= byMins + 5; })
       .sort((a, b) => toMins(a.officeArrival) - toMins(b.officeArrival));
 
-    const nearlyLate = wharfFiltered
-      .filter((t) => { const a = toMins(t.officeArrival); return a > byMins + 5 && a <= byMins + 15; })
-      .sort((a, b) => toMins(a.officeArrival) - toMins(b.officeArrival));
-
     const sortFn = sort === "arrival"
       ? (a: ScheduleTrip, b: ScheduleTrip) => toMins(b.officeArrival) - toMins(a.officeArrival)
       : (a: ScheduleTrip, b: ScheduleTrip) => a.totalMins - b.totalMins;
 
-    setResults({ main: onTime.sort(sortFn), justLate, nearlyLate });
+    setResults({ main: onTime.sort(sortFn), justLate });
   }
 
   const dateLabel = (() => {
@@ -294,11 +289,6 @@ export default function CommutePlanner() {
                 </button>
               )}
 
-              {results.nearlyLate.length > 0 && (
-                <div className="mt-2 space-y-3">
-                  {results.nearlyLate.map((t) => <TripRow key={t.id} trip={t} dim />)}
-                </div>
-              )}
             </>
           )}
 
