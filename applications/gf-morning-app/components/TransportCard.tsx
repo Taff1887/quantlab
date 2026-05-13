@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import type { TransportOption, WharfName } from "../types";
-import { fetchTransportOptions, leaveByWalking, leaveByDriving } from "../lib/transportService";
+import { fetchTransportOptions } from "../lib/transportService";
 
 type SortKey = "departure" | "arrival" | "total";
 
@@ -162,9 +162,6 @@ export default function TransportCard() {
       {/* Option cards */}
       <div className="space-y-3">
         {visible.map((opt) => {
-          const walkLeave = leaveByWalking(opt.departureTime, opt.walkMins);
-          const driveLeave = leaveByDriving(opt.departureTime, opt.driveMins);
-
           return (
             <div
               key={opt.id}
@@ -178,28 +175,12 @@ export default function TransportCard() {
                 </div>
               </div>
 
-              <div className="flex gap-3 px-4 pb-3">
-                <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                  <span>🚶</span>
-                  <span className="font-semibold text-slate-700">{opt.walkMins} min</span>
-                  <span className="text-slate-300">·</span>
-                  <span>{formatDist(opt.walkDistanceM)}</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                  <span>🚗</span>
-                  <span className="font-semibold text-slate-700">{opt.driveMins} min</span>
-                  {driveIsRealtime && <span className="text-[9px] text-emerald-600 font-bold">🚦</span>}
-                  <span className="text-slate-300">·</span>
-                  <span>{formatDist(opt.driveDistanceM)}</span>
-                </div>
-              </div>
-
               <div className="mx-4 border-t border-slate-100" />
 
               <div className="grid grid-cols-3 gap-0 px-4 py-3">
                 {[
                   { label: "Departs", value: opt.departureTime },
-                  { label: "→ Circ. Quay", value: opt.arrivalTime },
+                  { label: "→ Circular Quay", value: opt.arrivalTime },
                   { label: "Total", value: `${opt.totalMins} min` },
                 ].map(({ label, value }) => (
                   <div key={label} className="text-center">
@@ -207,22 +188,6 @@ export default function TransportCard() {
                     <p className="text-sm font-bold text-slate-800">{value}</p>
                   </div>
                 ))}
-              </div>
-
-              <div className="mx-4 border-t border-slate-100" />
-
-              <div className="px-4 py-3 space-y-1.5">
-                <p className="text-xs text-slate-400 mb-2 font-medium">Leave by</p>
-                <div className="flex items-center gap-2 text-xs">
-                  <span>🚶</span>
-                  <span className="font-bold text-slate-700">{walkLeave}</span>
-                  <span className="text-slate-400">if walking</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs">
-                  <span>🚗</span>
-                  <span className="font-bold text-slate-700">{driveLeave}</span>
-                  <span className="text-slate-400">if driving</span>
-                </div>
               </div>
             </div>
           );

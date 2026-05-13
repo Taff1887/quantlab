@@ -4,7 +4,6 @@ import type { WharfName } from "../types";
 import {
   filterTrips,
   tripsArrivingBy,
-  formatDist,
   toMins,
   type ScheduleTrip,
 } from "../lib/scheduleService";
@@ -40,49 +39,19 @@ function TripRow({ trip, dim }: { trip: ScheduleTrip; dim?: boolean }) {
         </div>
       </div>
 
-      <div className="flex gap-4 px-4 pb-2">
-        <span className="text-xs text-slate-500 flex items-center gap-1">
-          🚶 <span className="font-semibold text-slate-700">{trip.walkMins} min</span>
-          <span className="text-slate-300">·</span> {formatDist(trip.walkDistanceM)}
-        </span>
-        <span className="text-xs text-slate-500 flex items-center gap-1">
-          🚗 <span className="font-semibold text-slate-700">{trip.driveMins} min</span>
-          <span className="text-slate-300">·</span> {formatDist(trip.driveDistanceM)}
-        </span>
-      </div>
-
       <div className="mx-4 border-t border-slate-100" />
 
-      <div className="grid grid-cols-3 px-4 py-2.5 text-center">
+      <div className="grid grid-cols-3 px-4 py-3 text-center">
         {[
           { label: "Departs", value: trip.departureTime },
-          { label: trip.destinationStop, value: trip.destinationArrival },
-          { label: "Office", value: trip.officeArrival },
+          { label: "→ Circular Quay", value: trip.destinationArrival },
+          { label: "Total", value: `${trip.totalMins} min` },
         ].map(({ label, value }) => (
           <div key={label}>
             <p className="text-xs text-slate-400">{label}</p>
             <p className="text-sm font-bold text-slate-800">{value}</p>
           </div>
         ))}
-      </div>
-
-      <div className="mx-4 border-t border-slate-100" />
-
-      <div className="px-4 py-3">
-        <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Leave home by</p>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="bg-white rounded-xl px-3 py-2 text-center border border-slate-100">
-            <p className="text-xs text-slate-400 mb-0.5">🚶 Walking</p>
-            <p className="text-base font-bold text-slate-800">{trip.leaveByWalking}</p>
-          </div>
-          <div className="bg-white rounded-xl px-3 py-2 text-center border border-slate-100">
-            <p className="text-xs text-slate-400 mb-0.5">🚗 Driving</p>
-            <p className="text-base font-bold text-slate-800">{trip.leaveByDriving}</p>
-          </div>
-        </div>
-        <p className="text-xs text-slate-400 mt-2 text-center">
-          Total journey: {trip.totalMins} min
-        </p>
       </div>
     </div>
   );
