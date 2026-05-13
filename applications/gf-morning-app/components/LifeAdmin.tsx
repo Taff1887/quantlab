@@ -206,16 +206,15 @@ export default function LifeAdmin() {
 
   return (
     <div className="card">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="section-title">✅ Life Admin</h2>
-        <div className="flex items-center gap-2">
-          {useLocal && (
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-600">
-              local only
-            </span>
-          )}
+      <div className="bg-gradient-to-r from-sky-400 to-blue-500 -mx-5 -mt-5 px-5 pt-4 pb-3 mb-4 rounded-t-2xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">✅</span>
+            <p className="text-xs font-bold text-white uppercase tracking-wide">Life Admin</p>
+            {useLocal && <span className="text-[10px] text-sky-200">local only</span>}
+          </div>
           {active.length > 0 && (
-            <span className="text-xs font-bold bg-blue-50 text-blue-600 px-2.5 py-1 rounded-full">
+            <span className="text-xs font-bold bg-white/20 text-white px-2.5 py-1 rounded-full">
               {active.length} active
             </span>
           )}

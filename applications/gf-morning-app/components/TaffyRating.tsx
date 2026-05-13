@@ -203,14 +203,13 @@ export default function TaffyRating() {
   return (
     <div className="card">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2 flex-wrap">
-          <h2 className="section-title">🌟 How is Taffy doing?</h2>
-          {useLocal && (
-            <span className="text-xs font-semibold text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-0.5">
-              local only
-            </span>
-          )}
+      <div className="bg-gradient-to-r from-sky-400 to-blue-500 -mx-5 -mt-5 px-5 pt-4 pb-3 mb-4 rounded-t-2xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">🌟</span>
+            <p className="text-xs font-bold text-white uppercase tracking-wide">How is Taffy doing?</p>
+          </div>
+          {useLocal && <span className="text-[10px] text-sky-200">local only</span>}
         </div>
       </div>
 

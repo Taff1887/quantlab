@@ -86,13 +86,17 @@ export interface ExerciseSet {
   sets: number;
 }
 
+export interface FreeExercise {
+  name: string;
+  weight?: number;
+  reps?: number;
+  sets?: number;
+  na?: boolean;
+}
+
 export interface GymDetails {
-  // Legs
-  squats?: ExerciseSet;
-  rdls?: ExerciseSet;
-  hipThrusts?: ExerciseSet;
-  // Upper Body
-  pullUps?: ExerciseSet;
+  // Free-form exercise list (Legs, Upper Body, Other)
+  exercises?: FreeExercise[];
   // Stairmaster
   flights?: number;
   minutes?: number;

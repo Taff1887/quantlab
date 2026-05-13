@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 
 const FACTS = [
   "If you shuffle a deck of cards properly, the exact order has almost certainly never existed before in history — and never will again. The number of combinations (52!) is larger than the number of atoms in the observable universe. 🃏",
@@ -45,15 +46,30 @@ function dayOfYear() {
 }
 
 export default function FunFactCard() {
-  const fact = FACTS[dayOfYear() % FACTS.length];
+  const [offset, setOffset] = useState(0);
+  const idx = (dayOfYear() + offset) % FACTS.length;
+  const fact = FACTS[idx];
+
+  function refresh() {
+    setOffset((o) => (o + 1) % FACTS.length);
+  }
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-4">
-      <div className="bg-gradient-to-r from-violet-50 to-fuchsia-50 border border-violet-100 rounded-2xl px-4 py-3 flex gap-3 items-start">
-        <span className="text-lg flex-shrink-0 mt-0.5">🤯</span>
-        <div>
-          <p className="text-xs font-bold text-violet-600 uppercase tracking-wide mb-1">Daily Mind-Blower</p>
-          <p className="text-sm text-slate-700 leading-relaxed">{fact}</p>
+      <div className="bg-gradient-to-r from-sky-50 to-indigo-50 border border-sky-100 rounded-2xl px-4 py-3">
+        <div className="flex items-start gap-3">
+          <span className="text-lg flex-shrink-0 mt-0.5">💡</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold text-sky-600 uppercase tracking-wide mb-1">Fun Fact</p>
+            <p className="text-sm text-slate-700 leading-relaxed">{fact}</p>
+          </div>
+          <button
+            onClick={refresh}
+            title="Show another fact"
+            className="flex-shrink-0 mt-0.5 w-7 h-7 flex items-center justify-center rounded-full bg-sky-100 hover:bg-sky-200 text-sky-500 hover:text-sky-700 transition-all active:scale-90 text-sm"
+          >
+            ↺
+          </button>
         </div>
       </div>
     </div>

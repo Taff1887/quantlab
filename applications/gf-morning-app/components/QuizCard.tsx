@@ -320,14 +320,19 @@ export default function QuizCard() {
 
   return (
     <div className="card">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="section-title">🧠 Question of the Day</h2>
-          <p className="text-xs text-slate-400 mt-0.5">3 correct in a row = ☕ free coffee</p>
-        </div>
-        <div className="text-right flex-shrink-0">
-          <p className="text-xs text-slate-400">Streak</p>
-          <p className="text-sm font-bold text-slate-800">{streakEmoji(quizState.streak)}</p>
+      <div className="bg-gradient-to-r from-sky-400 to-blue-500 -mx-5 -mt-5 px-5 pt-4 pb-3 mb-4 rounded-t-2xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">🧠</span>
+            <div>
+              <p className="text-xs font-bold text-white uppercase tracking-wide">Question of the Day</p>
+              <p className="text-xs text-sky-100">3 correct in a row = ☕ free coffee</p>
+            </div>
+          </div>
+          <div className="text-right flex-shrink-0">
+            <p className="text-xs text-white/60">Streak</p>
+            <p className="text-sm font-bold text-white">{streakEmoji(quizState.streak)}</p>
+          </div>
         </div>
       </div>
 

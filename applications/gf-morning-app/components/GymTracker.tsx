@@ -2,15 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
-import type { GymSession, WorkoutType, GymDetails, ExerciseSet } from "../types";
+import type { GymSession, WorkoutType, GymDetails, FreeExercise } from "../types";
 
 const LS_KEY = "gym_sessions_local";
 
-const WORKOUT_TYPES: WorkoutType[] = ["Pilates","Legs","Upper Body","Run","Stairmaster","Other"];
+const WORKOUT_TYPES: WorkoutType[] = ["Pilates", "Legs", "Upper Body", "Run", "Stairmaster", "Other"];
 
 const WORKOUT_EMOJI: Record<WorkoutType, string> = {
   Pilates: "🧘‍♀️", Legs: "🦵", "Upper Body": "💪", Run: "🏃‍♀️", Stairmaster: "🪜", Other: "⭐",
 };
+
+// Workout types that get the exercise list
+const EXERCISE_TYPES: WorkoutType[] = ["Legs", "Upper Body", "Other"];
+function showsExercises(type: WorkoutType) { return EXERCISE_TYPES.includes(type); }
 
 type TimePeriod = "all" | "2w" | "1m" | "3m";
 
@@ -32,11 +36,13 @@ function cutoffDate(period: TimePeriod): string | null {
   return d.toISOString().split("T")[0];
 }
 
-function emptySet(withWeight = true): ExerciseSet {
-  return withWeight ? { weight: 0, reps: 0, sets: 0 } : { reps: 0, sets: 0 };
+function defaultExercises(): FreeExercise[] {
+  return [
+    { name: "", weight: 0, reps: 0, sets: 0 },
+    { name: "", weight: 0, reps: 0, sets: 0 },
+    { name: "", weight: 0, reps: 0, sets: 0 },
+  ];
 }
-
-function emptyDetails(): GymDetails { return {}; }
 
 // ─── localStorage helpers ─────────────────────────────────────────────────────
 
@@ -44,47 +50,19 @@ function lsLoad(): GymSession[] {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw) as GymSession[];
-    // Sort descending by date (same as DB order)
-    return parsed.sort((a, b) => b.date.localeCompare(a.date));
-  } catch {
-    return [];
-  }
+    return (JSON.parse(raw) as GymSession[]).sort((a, b) => b.date.localeCompare(a.date));
+  } catch { return []; }
 }
 
 function lsSave(sessions: GymSession[]) {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(sessions));
-  } catch {
-    /* ignore */
-  }
+  try { localStorage.setItem(LS_KEY, JSON.stringify(sessions)); } catch {}
 }
 
-// ─── Detail summary ───────────────────────────────────────────────────────────
-
-function fmtSet(s?: ExerciseSet, showWeight = true): string | null {
-  if (!s) return null;
-  const parts: string[] = [];
-  if (showWeight && s.weight) parts.push(`${s.weight}kg`);
-  if (s.reps) parts.push(`${s.reps} reps`);
-  if (s.sets) parts.push(`${s.sets} sets`);
-  return parts.length ? parts.join(" × ") : null;
-}
+// ─── Detail summary — one exercise per line ───────────────────────────────────
 
 function DetailSummary({ type, details }: { type: WorkoutType; details?: GymDetails }) {
   if (!details) return null;
-  if (type === "Legs") {
-    const parts = [
-      details.squats ? `Squats: ${fmtSet(details.squats)}` : "Squats: N/A",
-      details.rdls ? `RDLs: ${fmtSet(details.rdls)}` : "RDLs: N/A",
-      details.hipThrusts ? `Hip Thrusts: ${fmtSet(details.hipThrusts)}` : "Hip Thrusts: N/A",
-    ];
-    return <p className="text-xs text-slate-400 mt-0.5">{parts.join(" | ")}</p>;
-  }
-  if (type === "Upper Body") {
-    const pu = fmtSet(details.pullUps, false);
-    return <p className="text-xs text-slate-400 mt-0.5">Pull Ups: {pu ?? "N/A"}</p>;
-  }
+
   if (type === "Stairmaster") {
     const parts = [
       details.flights ? `${details.flights} flights` : null,
@@ -93,80 +71,24 @@ function DetailSummary({ type, details }: { type: WorkoutType; details?: GymDeta
     if (!parts.length) return null;
     return <p className="text-xs text-slate-400 mt-0.5">{parts.join(" in ")}</p>;
   }
-  return null;
-}
 
-// ─── Exercise row with N/A toggle ─────────────────────────────────────────────
+  const exercises = details.exercises?.filter((e) => !e.na && e.name?.trim());
+  if (!exercises?.length) return null;
 
-function ExerciseRow({
-  label,
-  value,
-  showWeight = true,
-  isNA,
-  onChange,
-  onToggleNA,
-}: {
-  label: string;
-  value: ExerciseSet;
-  showWeight?: boolean;
-  isNA: boolean;
-  onChange: (v: ExerciseSet) => void;
-  onToggleNA: () => void;
-}) {
   return (
-    <div className="mb-3">
-      <div className="flex items-center justify-between mb-1.5">
-        <p className="text-xs font-semibold text-slate-600">{label}</p>
-        <button
-          type="button"
-          onClick={onToggleNA}
-          className={`text-xs px-2.5 py-0.5 rounded-lg font-bold border transition-all ${
-            isNA
-              ? "bg-slate-300 text-slate-600 border-slate-400"
-              : "bg-white text-slate-400 border-slate-200 hover:bg-slate-100"
-          }`}
-        >
-          N/A
-        </button>
-      </div>
-      {isNA ? (
-        <p className="text-xs text-slate-300 italic pl-1 py-1">Skipped / not done this session</p>
-      ) : (
-        <div className={`grid gap-2 ${showWeight ? "grid-cols-3" : "grid-cols-2"}`}>
-          {showWeight && (
-            <div>
-              <label className="label">Weight (kg)</label>
-              <input
-                type="number" min={0}
-                value={value.weight || ""}
-                onChange={(e) => onChange({ ...value, weight: Number(e.target.value) })}
-                onFocus={(e) => e.target.select()}
-                className="input text-sm" placeholder="0"
-              />
-            </div>
-          )}
-          <div>
-            <label className="label">Reps</label>
-            <input
-              type="number" min={0}
-              value={value.reps || ""}
-              onChange={(e) => onChange({ ...value, reps: Number(e.target.value) })}
-              onFocus={(e) => e.target.select()}
-              className="input text-sm" placeholder="0"
-            />
-          </div>
-          <div>
-            <label className="label">Sets</label>
-            <input
-              type="number" min={0}
-              value={value.sets || ""}
-              onChange={(e) => onChange({ ...value, sets: Number(e.target.value) })}
-              onFocus={(e) => e.target.select()}
-              className="input text-sm" placeholder="0"
-            />
-          </div>
-        </div>
-      )}
+    <div className="mt-1 space-y-0.5">
+      {exercises.map((ex, i) => {
+        const parts = [
+          ex.weight ? `${ex.weight}kg` : null,
+          ex.reps ? `${ex.reps} reps` : null,
+          ex.sets ? `${ex.sets} sets` : null,
+        ].filter(Boolean);
+        return (
+          <p key={i} className="text-xs text-slate-400">
+            {ex.name}{parts.length ? `: ${parts.join(" × ")}` : ""}
+          </p>
+        );
+      })}
     </div>
   );
 }
@@ -186,8 +108,9 @@ export default function GymTracker() {
   const [formDate, setFormDate] = useState(todayStr());
   const [formType, setFormType] = useState<WorkoutType>("Pilates");
   const [formNotes, setFormNotes] = useState("");
-  const [details, setDetails] = useState<GymDetails>(emptyDetails());
-  const [naExercises, setNaExercises] = useState<Set<string>>(new Set());
+  const [exerciseList, setExerciseList] = useState<FreeExercise[]>(defaultExercises());
+  const [formFlights, setFormFlights] = useState(0);
+  const [formMinutes, setFormMinutes] = useState(0);
 
   async function fetchSessions() {
     setLoading(true);
@@ -214,30 +137,34 @@ export default function GymTracker() {
 
   useEffect(() => { fetchSessions(); }, []);
 
-  function toggleNA(key: string) {
-    setNaExercises((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-        setDetails((d) => {
-          const copy = { ...d };
-          delete copy[key as keyof GymDetails];
-          return copy;
-        });
-      }
-      return next;
-    });
+  // ── Exercise list helpers ─────────────────────────────────────────────────
+
+  function updateExercise(idx: number, patch: Partial<FreeExercise>) {
+    setExerciseList((prev) => prev.map((e, i) => i === idx ? { ...e, ...patch } : e));
   }
+
+  function removeExercise(idx: number) {
+    setExerciseList((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function addExercise() {
+    setExerciseList((prev) => [...prev, { name: "", weight: 0, reps: 0, sets: 0 }]);
+  }
+
+  function toggleExerciseNA(idx: number) {
+    setExerciseList((prev) => prev.map((e, i) => i === idx ? { ...e, na: !e.na } : e));
+  }
+
+  // ── Form open / close ─────────────────────────────────────────────────────
 
   function openAddForm() {
     setEditId(null);
     setFormDate(todayStr());
     setFormType("Pilates");
     setFormNotes("");
-    setDetails(emptyDetails());
-    setNaExercises(new Set());
+    setExerciseList(defaultExercises());
+    setFormFlights(0);
+    setFormMinutes(0);
     setShowForm(true);
   }
 
@@ -246,15 +173,21 @@ export default function GymTracker() {
     setFormDate(session.date);
     setFormType(session.type);
     setFormNotes(session.notes ?? "");
-    setDetails(session.details ?? emptyDetails());
-    const na = new Set<string>();
-    if (session.type === "Legs") {
-      if (!session.details?.squats) na.add("squats");
-      if (!session.details?.rdls) na.add("rdls");
-      if (!session.details?.hipThrusts) na.add("hipThrusts");
+
+    if (session.type === "Stairmaster") {
+      setFormFlights(session.details?.flights ?? 0);
+      setFormMinutes(session.details?.minutes ?? 0);
+      setExerciseList(defaultExercises());
+    } else if (showsExercises(session.type)) {
+      const exs = session.details?.exercises;
+      setExerciseList(exs?.length ? exs : defaultExercises());
+      setFormFlights(0);
+      setFormMinutes(0);
+    } else {
+      setExerciseList(defaultExercises());
+      setFormFlights(0);
+      setFormMinutes(0);
     }
-    if (session.type === "Upper Body" && !session.details?.pullUps) na.add("pullUps");
-    setNaExercises(na);
     setShowForm(true);
   }
 
@@ -262,13 +195,26 @@ export default function GymTracker() {
 
   function handleTypeChange(t: WorkoutType) {
     setFormType(t);
-    setDetails(emptyDetails());
-    setNaExercises(new Set());
+    setExerciseList(defaultExercises());
+    setFormFlights(0);
+    setFormMinutes(0);
   }
+
+  // ── Submit ────────────────────────────────────────────────────────────────
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    let details: GymDetails = {};
+    if (formType === "Stairmaster") {
+      details = { flights: formFlights || undefined, minutes: formMinutes || undefined };
+    } else if (showsExercises(formType)) {
+      const filled = exerciseList.filter((ex) => ex.name.trim() || ex.na);
+      if (filled.length) details = { exercises: filled };
+    }
+
     const payload = { date: formDate, type: formType, notes: formNotes, details };
+
     try {
       if (editId) {
         const { error } = await supabase.from("gym_sessions").update(payload).eq("id", editId);
@@ -282,9 +228,7 @@ export default function GymTracker() {
       setUseLocal(true);
       const current = lsLoad();
       if (editId) {
-        const updated = current.map((s) =>
-          s.id === editId ? { ...s, ...payload } : s
-        );
+        const updated = current.map((s) => s.id === editId ? { ...s, ...payload } : s);
         lsSave(updated);
         setSessions(updated.sort((a, b) => b.date.localeCompare(a.date)));
       } else {
@@ -326,18 +270,23 @@ export default function GymTracker() {
 
   return (
     <div className="card">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <h2 className="section-title">🍑 Butler&apos;s Booty Tracker</h2>
-          {useLocal && (
-            <span className="text-xs font-semibold text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-0.5">
-              local only
-            </span>
-          )}
+      {/* Blue header */}
+      <div className="bg-gradient-to-r from-sky-400 to-blue-500 -mx-5 -mt-5 px-5 pt-4 pb-3 mb-4 rounded-t-2xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">🍑</span>
+            <div>
+              <p className="text-xs font-bold text-white uppercase tracking-wide">Butler&apos;s Booty Tracker</p>
+              {useLocal && <p className="text-[10px] text-sky-200">local only</p>}
+            </div>
+          </div>
+          <button
+            className="text-xs font-semibold bg-white/20 text-white px-3 py-1.5 rounded-full hover:bg-white/30 transition-colors"
+            onClick={openAddForm}
+          >
+            + Log Session
+          </button>
         </div>
-        <button className="btn-primary text-xs py-1.5 px-3" onClick={openAddForm}>
-          + Log Session
-        </button>
       </div>
 
       {/* Log / Edit form */}
@@ -372,69 +321,101 @@ export default function GymTracker() {
             <label className="label">Notes (optional)</label>
             <input className="input" type="text" value={formNotes}
               onChange={(e) => setFormNotes(e.target.value)}
-              placeholder="e.g. Felt strong today, skipped abs" />
+              placeholder="e.g. Felt strong today, heavy session" />
           </div>
 
-          {/* Legs */}
-          {formType === "Legs" && (
+          {/* Free-form exercise list */}
+          {showsExercises(formType) && (
             <div className="border-t border-slate-100 pt-3">
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">
-                Exercise details — tap N/A for anything you skipped
+                Exercises — tap N/A for anything skipped
               </p>
-              <ExerciseRow label="Squats"
-                value={details.squats ?? emptySet(true)}
-                isNA={naExercises.has("squats")}
-                onToggleNA={() => toggleNA("squats")}
-                onChange={(v) => setDetails((d) => ({ ...d, squats: v }))}
-              />
-              <ExerciseRow label="RDLs"
-                value={details.rdls ?? emptySet(true)}
-                isNA={naExercises.has("rdls")}
-                onToggleNA={() => toggleNA("rdls")}
-                onChange={(v) => setDetails((d) => ({ ...d, rdls: v }))}
-              />
-              <ExerciseRow label="Hip Thrusts"
-                value={details.hipThrusts ?? emptySet(true)}
-                isNA={naExercises.has("hipThrusts")}
-                onToggleNA={() => toggleNA("hipThrusts")}
-                onChange={(v) => setDetails((d) => ({ ...d, hipThrusts: v }))}
-              />
-            </div>
-          )}
-
-          {/* Upper Body */}
-          {formType === "Upper Body" && (
-            <div className="border-t border-slate-100 pt-3">
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">
-                Exercise details — tap N/A if skipped
-              </p>
-              <ExerciseRow label="Pull Ups"
-                value={details.pullUps ?? emptySet(false)}
-                showWeight={false}
-                isNA={naExercises.has("pullUps")}
-                onToggleNA={() => toggleNA("pullUps")}
-                onChange={(v) => setDetails((d) => ({ ...d, pullUps: v }))}
-              />
+              <div className="space-y-3">
+                {exerciseList.map((ex, idx) => (
+                  <div key={idx} className="p-3 bg-white rounded-xl border border-slate-100">
+                    <div className="flex items-center gap-2 mb-2">
+                      <input
+                        className="input flex-1 text-sm font-medium"
+                        placeholder="Exercise name (e.g. Squats)"
+                        value={ex.name}
+                        onChange={(e) => updateExercise(idx, { name: e.target.value })}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => toggleExerciseNA(idx)}
+                        className={`text-xs px-2.5 py-1.5 rounded-lg font-bold border transition-all flex-shrink-0 ${
+                          ex.na
+                            ? "bg-slate-300 text-slate-600 border-slate-400"
+                            : "bg-white text-slate-400 border-slate-200 hover:bg-slate-100"
+                        }`}
+                      >
+                        N/A
+                      </button>
+                      {exerciseList.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeExercise(idx)}
+                          className="text-slate-300 hover:text-red-400 transition-colors text-sm flex-shrink-0"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                    {ex.na ? (
+                      <p className="text-xs text-slate-300 italic pl-1">Skipped / not done this session</p>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="label">Weight (kg)</label>
+                          <input type="number" min={0} value={ex.weight || ""} placeholder="0"
+                            onChange={(e) => updateExercise(idx, { weight: Number(e.target.value) })}
+                            onFocus={(e) => e.target.select()}
+                            className="input text-sm" />
+                        </div>
+                        <div>
+                          <label className="label">Reps</label>
+                          <input type="number" min={0} value={ex.reps || ""} placeholder="0"
+                            onChange={(e) => updateExercise(idx, { reps: Number(e.target.value) })}
+                            onFocus={(e) => e.target.select()}
+                            className="input text-sm" />
+                        </div>
+                        <div>
+                          <label className="label">Sets</label>
+                          <input type="number" min={0} value={ex.sets || ""} placeholder="0"
+                            onChange={(e) => updateExercise(idx, { sets: Number(e.target.value) })}
+                            onFocus={(e) => e.target.select()}
+                            className="input text-sm" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={addExercise}
+                className="text-xs text-blue-600 font-semibold mt-3"
+              >
+                + Add exercise
+              </button>
             </div>
           )}
 
           {/* Stairmaster */}
           {formType === "Stairmaster" && (
             <div className="border-t border-slate-100 pt-3">
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">
-                Session details
-              </p>
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Session details</p>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="label">Flights of stairs</label>
-                  <input type="number" min={0} value={details.flights ?? ""}
-                    onChange={(e) => setDetails((d) => ({ ...d, flights: Number(e.target.value) }))}
+                  <input type="number" min={0} value={formFlights || ""}
+                    onChange={(e) => setFormFlights(Number(e.target.value))}
                     className="input text-sm" placeholder="0" />
                 </div>
                 <div>
                   <label className="label">Time (minutes)</label>
-                  <input type="number" min={0} value={details.minutes ?? ""}
-                    onChange={(e) => setDetails((d) => ({ ...d, minutes: Number(e.target.value) }))}
+                  <input type="number" min={0} value={formMinutes || ""}
+                    onChange={(e) => setFormMinutes(Number(e.target.value))}
                     className="input text-sm" placeholder="0" />
                 </div>
               </div>
@@ -459,8 +440,8 @@ export default function GymTracker() {
           <div className="flex items-start justify-between">
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wide mb-2">Last workout</p>
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">{WORKOUT_EMOJI[latest.type]}</span>
+              <div className="flex items-start gap-3">
+                <span className="text-3xl flex-shrink-0">{WORKOUT_EMOJI[latest.type]}</span>
                 <div className="min-w-0">
                   <p className="font-semibold text-slate-800">{latest.type}</p>
                   <p className="text-xs text-slate-500">{latest.date}</p>
@@ -509,9 +490,9 @@ export default function GymTracker() {
           {showHistory && (
             <div className="mt-3 divide-y divide-slate-50">
               {history.map((s) => (
-                <div key={s.id} className="flex items-center justify-between py-2.5">
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <span className="text-lg flex-shrink-0">{WORKOUT_EMOJI[s.type]}</span>
+                <div key={s.id} className="flex items-start justify-between py-2.5">
+                  <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                    <span className="text-lg flex-shrink-0 mt-0.5">{WORKOUT_EMOJI[s.type]}</span>
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-slate-700">{s.type}</p>
                       <p className="text-xs text-slate-400">{s.date}</p>

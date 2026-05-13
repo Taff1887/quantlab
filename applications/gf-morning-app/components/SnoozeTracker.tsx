@@ -164,11 +164,18 @@ export default function SnoozeTracker() {
 
   return (
     <div className="card">
-      <div className="flex items-center justify-between mb-1">
-        <h2 className="section-title">⏰ Snooze Tracker</h2>
-        {useLocal && <span className="text-[10px] text-slate-300 font-medium">local only</span>}
+      <div className="bg-gradient-to-r from-sky-400 to-blue-500 -mx-5 -mt-5 px-5 pt-4 pb-3 mb-4 rounded-t-2xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">⏰</span>
+            <div>
+              <p className="text-xs font-bold text-white uppercase tracking-wide">Snooze Tracker</p>
+              <p className="text-xs text-sky-100">How many times did you hit snooze today?</p>
+            </div>
+          </div>
+          {useLocal && <span className="text-[10px] text-sky-200">local only</span>}
+        </div>
       </div>
-      <p className="text-xs text-slate-400 mb-4">How many times did you hit snooze today?</p>
 
       {/* Today */}
       {submittedToday ? (

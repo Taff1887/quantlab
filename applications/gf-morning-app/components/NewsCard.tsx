@@ -48,14 +48,14 @@ export default function NewsCard() {
   return (
     <div className="card overflow-hidden">
       {/* Gradient header */}
-      <div className="bg-gradient-to-r from-emerald-600 to-teal-500 -mx-4 -mt-4 px-4 pt-4 pb-3 mb-4 rounded-t-2xl">
+      <div className="bg-gradient-to-r from-sky-400 to-blue-500 -mx-4 -mt-4 px-4 pt-4 pb-3 mb-4 rounded-t-2xl">
         <div className="flex items-center gap-2">
           <span className="text-xl">📈</span>
           <div>
             <p className="text-xs font-bold text-white uppercase tracking-wide">
               Economy News
             </p>
-            <p className="text-xs text-emerald-100">Australia · Markets &amp; Policy</p>
+            <p className="text-xs text-sky-100">Australia · Markets &amp; Policy</p>
           </div>
         </div>
       </div>

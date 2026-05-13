@@ -53,9 +53,14 @@ export default function WeatherCard() {
   return (
     <div className="card">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="section-title">Sydney Weather</h2>
-        <span className="text-xs text-slate-400">Live · Mosman → CBD</span>
+      <div className="bg-gradient-to-r from-sky-400 to-blue-500 -mx-5 -mt-5 px-5 pt-4 pb-3 mb-4 rounded-t-2xl">
+        <div className="flex items-center gap-2.5">
+          <span className="text-xl">🌤️</span>
+          <div>
+            <p className="text-xs font-bold text-white uppercase tracking-wide">Sydney Weather</p>
+            <p className="text-xs text-sky-100">Live · Mosman → CBD</p>
+          </div>
+        </div>
       </div>
 
       {/* Day tabs */}

@@ -235,21 +235,22 @@ export default function CalendarCard() {
 
   return (
     <div className="card">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <h2 className="section-title">📅 Calendar</h2>
-          {useLocal && (
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-600">
-              local only
-            </span>
-          )}
+      <div className="bg-gradient-to-r from-sky-400 to-blue-500 -mx-5 -mt-5 px-5 pt-4 pb-3 mb-4 rounded-t-2xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">📅</span>
+            <div>
+              <p className="text-xs font-bold text-white uppercase tracking-wide">Calendar</p>
+              {useLocal && <p className="text-[10px] text-sky-200">local only</p>}
+            </div>
+          </div>
+          <button
+            onClick={() => { setShowAdd(true); setAddStart(selectedDay ?? today); }}
+            className="text-xs font-semibold bg-white/20 text-white px-3 py-1.5 rounded-full hover:bg-white/30 transition-colors"
+          >
+            + Add event
+          </button>
         </div>
-        <button
-          onClick={() => { setShowAdd(true); setAddStart(selectedDay ?? today); }}
-          className="text-xs font-semibold px-3 py-1.5 rounded-full bg-slate-800 text-white hover:bg-slate-700 transition-colors"
-        >
-          + Add event
-        </button>
       </div>
 
       {/* Month navigator */}

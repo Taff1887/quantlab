@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import type { TransportOption, PrimaryMode, WharfName } from "../types";
+import type { TransportOption, WharfName } from "../types";
 import { fetchTransportOptions, leaveByWalking, leaveByDriving } from "../lib/transportService";
 
 type SortKey = "departure" | "arrival" | "total";
@@ -11,10 +11,6 @@ const FERRY_WHARVES: { label: string; value: WharfName }[] = [
   { label: "Mosman Bay", value: "Mosman Bay" },
   { label: "Cremorne Point", value: "Cremorne Point" },
   { label: "Old Cremorne", value: "Old Cremorne" },
-];
-
-const BUS_ROUTES: { label: string; value: string }[] = [
-  { label: "Route 100 · Bradleys Head Rd", value: "bus-b100" },
 ];
 
 function timeToMins(t: string) {
@@ -47,11 +43,9 @@ export default function TransportCard() {
   const [isRealtime, setIsRealtime] = useState(false);
   const [driveIsRealtime, setDriveIsRealtime] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [mode, setMode] = useState<PrimaryMode>("all");
   const [selectedWharves, setSelectedWharves] = useState<WharfName[]>([
     "Taronga Zoo", "South Mosman", "Mosman Bay", "Cremorne Point", "Old Cremorne",
   ]);
-  const [selectedBuses, setSelectedBuses] = useState<string[]>(["bus-b100"]);
   const [sort, setSort] = useState<SortKey>("departure");
   const [expanded, setExpanded] = useState(false);
 
@@ -66,12 +60,11 @@ export default function TransportCard() {
 
   useEffect(() => {
     refresh();
-    const interval = setInterval(refresh, 60_000); // refresh every minute
+    const interval = setInterval(refresh, 60_000);
     return () => clearInterval(interval);
   }, []);
 
-  // Reset expanded when filters change
-  useEffect(() => { setExpanded(false); }, [mode, sort]);
+  useEffect(() => { setExpanded(false); }, [sort, selectedWharves]);
 
   function toggleWharf(w: WharfName) {
     setSelectedWharves((prev) =>
@@ -80,33 +73,13 @@ export default function TransportCard() {
     setExpanded(false);
   }
 
-  function toggleBus(b: string) {
-    setSelectedBuses((prev) =>
-      prev.includes(b) ? prev.filter((x) => x !== b) : [...prev, b]
-    );
-    setExpanded(false);
-  }
-
   const nowMins = nowSydneyMins();
   const filtered = options.filter((o) => {
+    if (o.mode !== "ferry") return false;
     const depMins = timeToMins(o.departureTime);
-    // Drop departures that have already left (allow 1 min grace)
     if (depMins < nowMins - 1) return false;
-    // Only show next 60 minutes
     if (depMins > nowMins + 60) return false;
-
-    if (o.mode === "ferry") {
-      if (mode === "bus") return false; // bus-only view
-      // Always apply wharf filter
-      return selectedWharves.length === 0 || selectedWharves.includes(o.wharf as WharfName);
-    }
-    if (o.mode === "bus") {
-      if (mode === "ferry") return false; // ferry-only view
-      // Always apply bus route filter
-      // Match by prefix so "bus-b100" matches trip IDs like "bus-b100-08:09"
-      return selectedBuses.length === 0 || selectedBuses.some((s) => o.id.startsWith(s));
-    }
-    return true;
+    return selectedWharves.length === 0 || selectedWharves.includes(o.wharf as WharfName);
   });
 
   const sorted = [...filtered].sort((a, b) => {
@@ -119,52 +92,58 @@ export default function TransportCard() {
   const visible = expanded ? sorted : sorted.slice(0, INITIAL_SHOW);
   const hasMore = sorted.length > INITIAL_SHOW;
 
+  const timeStr = lastUpdated?.toLocaleTimeString("en-AU", {
+    timeZone: "Australia/Sydney", hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+
   return (
     <div className="card">
-      {/* Header */}
-      <div className="mb-4">
+      {/* Grey header */}
+      <div className="bg-gradient-to-r from-slate-500 to-slate-700 -mx-5 -mt-5 px-5 pt-4 pb-3 mb-4 rounded-t-2xl">
         <div className="flex items-center justify-between">
-          <h2 className="section-title">Commute</h2>
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">⛴️</span>
+            <div>
+              <p className="text-xs font-bold text-white uppercase tracking-wide">Commute</p>
+              <p className="text-xs text-slate-300">Mosman → Circular Quay → 1 Farrer Place</p>
+            </div>
+          </div>
           <div className="flex items-center gap-2">
-            {lastUpdated && (
-              <span className="text-[10px] text-slate-300">
-                {lastUpdated.toLocaleTimeString("en-AU", { timeZone: "Australia/Sydney", hour: "2-digit", minute: "2-digit", hour12: false })}
-              </span>
-            )}
-            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${isRealtime ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400"}`}>
+            {timeStr && <span className="text-[10px] text-slate-400">{timeStr}</span>}
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+              isRealtime
+                ? "bg-emerald-500/20 text-emerald-200 border border-emerald-400/30"
+                : "bg-white/10 text-white/50"
+            }`}>
               {isRealtime ? "🟢 Live" : "Schedule"}
             </span>
           </div>
         </div>
-        <p className="text-xs text-slate-400 mt-0.5">
-          {mode === "bus"
-            ? "Bradleys Head Rd → Wynyard → 1 Farrer Place"
-            : mode === "ferry"
-            ? "Mosman → Circular Quay → 1 Farrer Place"
-            : "Mosman → 1 Farrer Place"}
-        </p>
       </div>
 
-      {/* Primary mode toggle */}
-      <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-2xl mb-3">
-        {(["all", "bus", "ferry"] as PrimaryMode[]).map((m) => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            className={`py-2 rounded-xl text-xs font-bold uppercase tracking-wide transition-all ${
-              mode === m
-                ? "bg-white text-slate-800 shadow-sm"
-                : "text-slate-400 hover:text-slate-600"
-            }`}
-          >
-            {m === "all" ? "All" : m === "bus" ? "🚌 Bus" : "⛴️ Ferry"}
-          </button>
-        ))}
+      {/* Wharf filter chips */}
+      <div className="flex flex-wrap gap-2 mb-3">
+        {FERRY_WHARVES.map((w) => {
+          const active = selectedWharves.includes(w.value);
+          return (
+            <button
+              key={w.value}
+              onClick={() => toggleWharf(w.value)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
+                active
+                  ? "bg-blue-600 text-white"
+                  : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+              }`}
+            >
+              {w.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Sort pills */}
-      <div className="flex gap-2 mb-3 flex-wrap">
-        <span className="text-xs text-slate-400 self-center mr-1">Sort:</span>
+      <div className="flex gap-2 mb-4 flex-wrap items-center">
+        <span className="text-xs text-slate-400 self-center">Sort:</span>
         {(["departure", "arrival", "total"] as SortKey[]).map((s) => (
           <button
             key={s}
@@ -180,50 +159,6 @@ export default function TransportCard() {
         ))}
       </div>
 
-      {/* Multi-select wharf chips */}
-      {mode === "ferry" && (
-        <div className="flex flex-wrap gap-2 mb-3">
-          {FERRY_WHARVES.map((w) => {
-            const active = selectedWharves.includes(w.value);
-            return (
-              <button
-                key={w.value}
-                onClick={() => toggleWharf(w.value)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
-                  active
-                    ? "bg-blue-600 text-white"
-                    : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                }`}
-              >
-                {w.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Multi-select bus chips */}
-      {mode === "bus" && (
-        <div className="flex flex-wrap gap-2 mb-3">
-          {BUS_ROUTES.map((r) => {
-            const active = selectedBuses.includes(r.value);
-            return (
-              <button
-                key={r.value}
-                onClick={() => toggleBus(r.value)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
-                  active
-                    ? "bg-blue-600 text-white"
-                    : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                }`}
-              >
-                {r.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
       {/* Option cards */}
       <div className="space-y-3">
         {visible.map((opt) => {
@@ -235,22 +170,14 @@ export default function TransportCard() {
               key={opt.id}
               className="rounded-2xl border border-slate-100 bg-slate-50/50 overflow-hidden"
             >
-              {/* Card header */}
               <div className="flex items-center gap-2.5 px-4 pt-4 pb-3">
-                <span className="text-2xl">
-                  {opt.mode === "ferry" ? "⛴️" : "🚌"}
-                </span>
+                <span className="text-2xl">⛴️</span>
                 <div>
-                  <p className="text-sm font-bold text-slate-800 leading-tight">
-                    {opt.stopName}
-                  </p>
-                  {opt.notes && (
-                    <p className="text-xs text-slate-400 mt-0.5">{opt.notes}</p>
-                  )}
+                  <p className="text-sm font-bold text-slate-800 leading-tight">{opt.stopName}</p>
+                  {opt.notes && <p className="text-xs text-slate-400 mt-0.5">{opt.notes}</p>}
                 </div>
               </div>
 
-              {/* Walk + drive row */}
               <div className="flex gap-3 px-4 pb-3">
                 <div className="flex items-center gap-1.5 text-xs text-slate-500">
                   <span>🚶</span>
@@ -261,7 +188,7 @@ export default function TransportCard() {
                 <div className="flex items-center gap-1.5 text-xs text-slate-500">
                   <span>🚗</span>
                   <span className="font-semibold text-slate-700">{opt.driveMins} min</span>
-                  {driveIsRealtime && <span title="Live traffic" className="text-[9px] text-emerald-600 font-bold">🚦</span>}
+                  {driveIsRealtime && <span className="text-[9px] text-emerald-600 font-bold">🚦</span>}
                   <span className="text-slate-300">·</span>
                   <span>{formatDist(opt.driveDistanceM)}</span>
                 </div>
@@ -269,11 +196,10 @@ export default function TransportCard() {
 
               <div className="mx-4 border-t border-slate-100" />
 
-              {/* Times grid */}
               <div className="grid grid-cols-3 gap-0 px-4 py-3">
                 {[
                   { label: "Departs", value: opt.departureTime },
-                  { label: opt.mode === "ferry" ? "→ Circ. Quay" : "→ Wynyard", value: opt.arrivalTime },
+                  { label: "→ Circ. Quay", value: opt.arrivalTime },
                   { label: "Total", value: `${opt.totalMins} min` },
                 ].map(({ label, value }) => (
                   <div key={label} className="text-center">
@@ -285,7 +211,6 @@ export default function TransportCard() {
 
               <div className="mx-4 border-t border-slate-100" />
 
-              {/* Leave by times */}
               <div className="px-4 py-3 space-y-1.5">
                 <p className="text-xs text-slate-400 mb-2 font-medium">Leave by</p>
                 <div className="flex items-center gap-2 text-xs">
@@ -305,11 +230,10 @@ export default function TransportCard() {
 
         {sorted.length === 0 && (
           <p className="text-center text-slate-400 text-sm py-8">
-            No options for this filter
+            No ferries in the next 60 min for the selected wharves
           </p>
         )}
 
-        {/* Show more / less */}
         {hasMore && (
           <button
             onClick={() => setExpanded((v) => !v)}
