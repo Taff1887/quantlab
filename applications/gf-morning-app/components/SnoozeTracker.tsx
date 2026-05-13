@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
 
 interface SnoozeLog {
@@ -157,6 +157,28 @@ export default function SnoozeTracker() {
     setSavingYesterday(false);
   }
 
+  // Last 14 calendar days, weekdays only → up to 10 bars
+  const chartDays = useMemo(() => {
+    const days: { ymd: string; label: string; shortDate: string; count: number | null }[] = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dow = d.getDay();
+      if (dow === 0 || dow === 6) continue; // weekdays only
+      const ymd = d.toISOString().split("T")[0];
+      const log = logs.find(l => l.date === ymd);
+      days.push({
+        ymd,
+        label: d.toLocaleDateString("en-AU", { weekday: "short" }).replace(".", ""),
+        shortDate: `${d.getDate()}/${d.getMonth() + 1}`,
+        count: log ? log.count : null,
+      });
+    }
+    return days;
+  }, [logs]);
+
+  const maxCount = Math.max(1, ...chartDays.map(d => d.count ?? 0));
+
   if (loading) return <div className="card animate-pulse h-32" />;
 
   const yesterdayLog  = logs.find(l => l.date === yesterday);
@@ -265,6 +287,60 @@ export default function SnoozeTracker() {
               + Log yesterday
             </button>
           )}
+        </div>
+      )}
+
+      {/* Weekday bar chart */}
+      {chartDays.some(d => d.count !== null) && (
+        <div className="mb-4">
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-3">Last 2 weeks</p>
+          <div className="flex items-end gap-1.5" style={{ height: 72 }}>
+            {chartDays.map((day) => {
+              const isToday = day.ymd === today;
+              const hasData = day.count !== null;
+              const count   = day.count ?? 0;
+              const pct     = hasData ? Math.max(8, Math.round((count / maxCount) * 100)) : 0;
+              const barColor = !hasData
+                ? "bg-slate-100"
+                : count === 0
+                ? "bg-emerald-400"
+                : count <= 2
+                ? "bg-amber-400"
+                : "bg-orange-500";
+
+              return (
+                <div key={day.ymd} className="flex flex-col items-center flex-1 gap-1">
+                  {/* count label */}
+                  <span className="text-[10px] font-bold text-slate-500" style={{ minHeight: 14 }}>
+                    {hasData && count > 0 ? count === 5 ? "5+" : count : hasData ? "" : ""}
+                  </span>
+                  {/* bar */}
+                  <div className="w-full flex items-end" style={{ height: 48 }}>
+                    <div
+                      className={`w-full rounded-t-md transition-all ${barColor} ${isToday ? "ring-2 ring-blue-400 ring-offset-1" : ""}`}
+                      style={{ height: hasData ? `${pct}%` : "4px" }}
+                    />
+                  </div>
+                  {/* day label */}
+                  <span className={`text-[10px] font-semibold ${isToday ? "text-blue-500" : "text-slate-400"}`}>
+                    {day.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex gap-3 mt-2">
+            {[
+              { color: "bg-emerald-400", label: "0" },
+              { color: "bg-amber-400",   label: "1–2" },
+              { color: "bg-orange-500",  label: "3+" },
+            ].map(({ color, label }) => (
+              <div key={label} className="flex items-center gap-1">
+                <div className={`w-2 h-2 rounded-sm ${color}`} />
+                <span className="text-[10px] text-slate-400">{label}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

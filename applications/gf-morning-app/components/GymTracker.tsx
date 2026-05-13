@@ -166,10 +166,6 @@ export default function GymTracker() {
     setExerciseList((prev) => [...prev, { name: "", weight: 0, reps: 0, sets: 0 }]);
   }
 
-  function toggleExerciseNA(idx: number) {
-    setExerciseList((prev) => prev.map((e, i) => i === idx ? { ...e, na: !e.na } : e));
-  }
-
   // ── Form open / close ─────────────────────────────────────────────────────
 
   function openAddForm() {
@@ -360,9 +356,6 @@ export default function GymTracker() {
           {/* Free-form exercise list */}
           {showsExercises(formType) && (
             <div className="border-t border-slate-100 pt-3">
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">
-                Exercises — tap N/A for anything skipped
-              </p>
               <div className="space-y-3">
                 {exerciseList.map((ex, idx) => (
                   <div key={idx} className="p-3 bg-white rounded-xl border border-slate-100">
@@ -373,17 +366,6 @@ export default function GymTracker() {
                         value={ex.name}
                         onChange={(e) => updateExercise(idx, { name: e.target.value })}
                       />
-                      <button
-                        type="button"
-                        onClick={() => toggleExerciseNA(idx)}
-                        className={`text-xs px-2.5 py-1.5 rounded-lg font-bold border transition-all flex-shrink-0 ${
-                          ex.na
-                            ? "bg-slate-300 text-slate-600 border-slate-400"
-                            : "bg-white text-slate-400 border-slate-200 hover:bg-slate-100"
-                        }`}
-                      >
-                        N/A
-                      </button>
                       {exerciseList.length > 1 && (
                         <button
                           type="button"
@@ -394,33 +376,29 @@ export default function GymTracker() {
                         </button>
                       )}
                     </div>
-                    {ex.na ? (
-                      <p className="text-xs text-slate-300 italic pl-1">Skipped / not done this session</p>
-                    ) : (
-                      <div className="grid grid-cols-3 gap-2">
-                        <div>
-                          <label className="label">Weight (kg)</label>
-                          <input type="number" min={0} value={ex.weight || ""} placeholder="0"
-                            onChange={(e) => updateExercise(idx, { weight: Number(e.target.value) })}
-                            onFocus={(e) => e.target.select()}
-                            className="input text-sm" />
-                        </div>
-                        <div>
-                          <label className="label">Reps</label>
-                          <input type="number" min={0} value={ex.reps || ""} placeholder="0"
-                            onChange={(e) => updateExercise(idx, { reps: Number(e.target.value) })}
-                            onFocus={(e) => e.target.select()}
-                            className="input text-sm" />
-                        </div>
-                        <div>
-                          <label className="label">Sets</label>
-                          <input type="number" min={0} value={ex.sets || ""} placeholder="0"
-                            onChange={(e) => updateExercise(idx, { sets: Number(e.target.value) })}
-                            onFocus={(e) => e.target.select()}
-                            className="input text-sm" />
-                        </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="label">Weight (kg)</label>
+                        <input type="number" min={0} value={ex.weight || ""} placeholder="0"
+                          onChange={(e) => updateExercise(idx, { weight: Number(e.target.value) })}
+                          onFocus={(e) => e.target.select()}
+                          className="input text-sm" />
                       </div>
-                    )}
+                      <div>
+                        <label className="label">Reps</label>
+                        <input type="number" min={0} value={ex.reps || ""} placeholder="0"
+                          onChange={(e) => updateExercise(idx, { reps: Number(e.target.value) })}
+                          onFocus={(e) => e.target.select()}
+                          className="input text-sm" />
+                      </div>
+                      <div>
+                        <label className="label">Sets</label>
+                        <input type="number" min={0} value={ex.sets || ""} placeholder="0"
+                          onChange={(e) => updateExercise(idx, { sets: Number(e.target.value) })}
+                          onFocus={(e) => e.target.select()}
+                          className="input text-sm" />
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
