@@ -62,17 +62,11 @@ const CLAUSES = [
     title: "Dramatic Sigh and Tummy Clause",
     body: 'I am permitted to dramatically sigh, flop onto the bed, say "I\'m tired," or announce "my tummy hurts" with no further explanation. Taffy must respond with care, snacks, affection, and where applicable, the legally required phrase: "aww poor peen," followed immediately by a hug.',
   },
-  {
-    n: 13,
-    title: "Final Acceptance",
-    body: "By pressing \"I Accept,\" I confirm that I am locked into this relationship contract forever.",
-  },
 ];
 
 export default function TermsPage({ onAccept }: { onAccept: () => void }) {
   const [ticked1, setTicked1] = useState(false);
-  const [ticked2, setTicked2] = useState(false);
-  const canAccept = ticked1 && ticked2;
+  const canAccept = ticked1;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-50 to-indigo-50 flex flex-col">
@@ -111,7 +105,7 @@ export default function TermsPage({ onAccept }: { onAccept: () => void }) {
 
       {/* Sticky footer — checkboxes + accept */}
       <div className="sticky bottom-0 bg-white/95 backdrop-blur-sm border-t border-slate-100 px-5 pt-4 pb-8 space-y-3 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
-        {/* Checkbox 1 */}
+        {/* Single checkbox */}
         <label className="flex items-start gap-3 cursor-pointer">
           <div
             onClick={() => setTicked1((v) => !v)}
@@ -125,25 +119,7 @@ export default function TermsPage({ onAccept }: { onAccept: () => void }) {
             onClick={() => setTicked1((v) => !v)}
             className="text-xs text-slate-600 leading-relaxed"
           >
-            I confirm I have read and understood all 13 clauses above, and accept them in their entirety.
-          </p>
-        </label>
-
-        {/* Checkbox 2 */}
-        <label className="flex items-start gap-3 cursor-pointer">
-          <div
-            onClick={() => setTicked2((v) => !v)}
-            className={`flex-shrink-0 mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
-              ticked2 ? "bg-blue-600 border-blue-600" : "bg-white border-slate-300"
-            }`}
-          >
-            {ticked2 && <span className="text-white text-xs leading-none font-bold">✓</span>}
-          </div>
-          <p
-            onClick={() => setTicked2((v) => !v)}
-            className="text-xs text-slate-600 leading-relaxed"
-          >
-            I acknowledge that Taffy is a menace, but unfortunately, he is <em>my</em> menace.
+            I accept the 12 above terms in their entirety and, by pressing &ldquo;I Accept,&rdquo; confirm that I am locked into this relationship contract forever.
           </p>
         </label>
 
