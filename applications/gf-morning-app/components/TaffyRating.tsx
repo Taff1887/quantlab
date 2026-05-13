@@ -5,14 +5,6 @@ import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
 
 const LS_KEY = "taffy_ratings_local";
 
-const SEED_ENTRY: RatingRow = {
-  id: "2026-05-10",
-  date: "2026-05-10",
-  rating: 1,
-  feedback: "Taffy made me cry all week",
-  createdAt: "2026-05-10T12:00:00.000Z",
-};
-
 interface RatingRow {
   id: string;
   date: string;       // YYYY-MM-DD
@@ -99,14 +91,6 @@ function lsUpsert(rows: RatingRow[], entry: RatingRow): RatingRow[] {
   return [entry, ...filtered].sort((a, b) => b.date.localeCompare(a.date));
 }
 
-function lsSeedIfEmpty(rows: RatingRow[]): RatingRow[] {
-  const hasSeed = rows.some((r) => r.id === SEED_ENTRY.id || r.date === SEED_ENTRY.date);
-  if (hasSeed) return rows;
-  const seeded = [SEED_ENTRY, ...rows].sort((a, b) => b.date.localeCompare(a.date));
-  lsSave(seeded);
-  return seeded;
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function TaffyRating() {
@@ -115,6 +99,7 @@ export default function TaffyRating() {
   const [rows, setRows] = useState<RatingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [useLocal, setUseLocal] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [historyPeriod, setHistoryPeriod] = useState<TimePeriod>("all");
@@ -142,7 +127,11 @@ export default function TaffyRating() {
     setLoading(true);
     if (!SUPABASE_ENABLED) {
       setUseLocal(true);
-      setRows(lsSeedIfEmpty(lsLoad()));
+      const local = lsLoad();
+      setRows(local);
+      const todayEntry = local.find((r) => r.date === today);
+      if (todayEntry) { setSelectedRating(todayEntry.rating); setFeedback(todayEntry.feedback ?? ""); }
+      else { setSelectedRating(null); setFeedback(""); }
       setLoading(false);
       return;
     }
@@ -156,28 +145,16 @@ export default function TaffyRating() {
       const mapped = ((data ?? []) as Record<string, unknown>[]).map(mapRow);
       setRows(mapped);
       setUseLocal(false);
-
       const todayEntry = mapped.find((r) => r.date === today);
-      if (todayEntry) {
-        setSelectedRating(todayEntry.rating);
-        setFeedback(todayEntry.feedback ?? "");
-      } else {
-        setSelectedRating(null);
-        setFeedback("");
-      }
+      if (todayEntry) { setSelectedRating(todayEntry.rating); setFeedback(todayEntry.feedback ?? ""); }
+      else { setSelectedRating(null); setFeedback(""); }
     } catch {
       setUseLocal(true);
-      const local = lsSeedIfEmpty(lsLoad());
+      const local = lsLoad();
       setRows(local);
-
       const todayEntry = local.find((r) => r.date === today);
-      if (todayEntry) {
-        setSelectedRating(todayEntry.rating);
-        setFeedback(todayEntry.feedback ?? "");
-      } else {
-        setSelectedRating(null);
-        setFeedback("");
-      }
+      if (todayEntry) { setSelectedRating(todayEntry.rating); setFeedback(todayEntry.feedback ?? ""); }
+      else { setSelectedRating(null); setFeedback(""); }
     }
     setLoading(false);
   }
@@ -220,6 +197,8 @@ export default function TaffyRating() {
       }
     }
     setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
   }
 
   // ─── Backdate form ──────────────────────────────────────────────────────────
@@ -488,9 +467,13 @@ export default function TaffyRating() {
       <button
         onClick={handleSubmit}
         disabled={!selectedRating || saving}
-        className="btn-primary w-full disabled:opacity-40 disabled:cursor-not-allowed mb-4"
+        className={`w-full mb-4 disabled:opacity-40 disabled:cursor-not-allowed transition-colors ${
+          saved
+            ? "bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-2xl text-sm"
+            : "btn-primary"
+        }`}
       >
-        {saving ? "Saving…" : todayEntry ? "Update today's rating" : "Submit rating"}
+        {saving ? "Saving…" : saved ? "✓ Saved!" : todayEntry ? "Update today's rating" : "Submit rating"}
       </button>
 
       {/* Today's saved summary */}
