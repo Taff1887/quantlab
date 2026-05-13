@@ -7,9 +7,6 @@ import QuizCard from "./QuizCard";
 import WeatherCard from "./WeatherCard";
 import TransportCard from "./TransportCard";
 import CommutePlanner from "./CommutePlanner";
-import ExcelFunctionCard from "./ExcelFunctionCard";
-import ShortcutQuiz from "./ShortcutQuiz";
-import ChoreCountdown from "./ChoreCountdown";
 import LifeAdmin from "./LifeAdmin";
 import GymTracker from "./GymTracker";
 import LastDate from "./LastDate";
@@ -35,9 +32,6 @@ export default function Dashboard() {
         <WeatherCard />
         <TransportCard />
         <CommutePlanner />
-        <ExcelFunctionCard />
-        <ShortcutQuiz />
-        <ChoreCountdown />
         <CalendarCard />
         <LifeAdmin />
         <GymTracker />

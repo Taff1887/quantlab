@@ -1,313 +1,292 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
 
 interface SnoozeLog {
   id: string;
-  date: string;    // YYYY-MM-DD
+  date: string;
   count: number;
   createdAt: string;
 }
 
-function todayStr() {
-  return new Date().toISOString().split("T")[0];
+function todayStr() { return new Date().toISOString().split("T")[0]; }
+
+function yesterdayStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split("T")[0];
 }
 
 function formatDateShort(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString("en-AU", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
+    weekday: "short", day: "numeric", month: "short",
   });
 }
 
 function mapRow(row: Record<string, unknown>): SnoozeLog {
   return {
-    id: row.id as string,
-    date: row.date as string,
-    count: row.count as number,
-    createdAt: row.created_at as string,
+    id:        row.id as string,
+    date:      row.date as string,
+    count:     row.count as number,
+    createdAt: (row.created_at as string) ?? "",
   };
 }
 
-// ── localStorage helpers (fallback when Supabase isn't configured) ──────────
+// ─── localStorage helpers ────────────────────────────────────────────────────
+
 const LS_KEY = "snooze_logs_local";
 
 function lsLoad(): SnoozeLog[] {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    return raw ? (JSON.parse(raw) as SnoozeLog[]) : [];
-  } catch {
-    return [];
-  }
+    if (!raw) return [];
+    return (JSON.parse(raw) as SnoozeLog[]).sort((a, b) => b.date.localeCompare(a.date));
+  } catch { return []; }
 }
 
 function lsSave(logs: SnoozeLog[]) {
-  try {
-    // Keep only last 14 days
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 13);
-    const cutoffStr = cutoff.toISOString().split("T")[0];
-    const trimmed = logs.filter((l) => l.date >= cutoffStr);
-    localStorage.setItem(LS_KEY, JSON.stringify(trimmed));
-  } catch { /* ignore */ }
+  try { localStorage.setItem(LS_KEY, JSON.stringify(logs)); } catch {}
 }
 
-function lsUpsert(date: string, count: number): SnoozeLog[] {
-  const existing = lsLoad().filter((l) => l.date !== date);
-  const entry: SnoozeLog = { id: date, date, count, createdAt: new Date().toISOString() };
-  const updated = [...existing, entry].sort((a, b) => b.date.localeCompare(a.date));
-  lsSave(updated);
-  return updated;
+function lsUpsert(logs: SnoozeLog[], entry: SnoozeLog): SnoozeLog[] {
+  return [entry, ...logs.filter(l => l.date !== entry.date)]
+    .sort((a, b) => b.date.localeCompare(a.date));
 }
-// ────────────────────────────────────────────────────────────────────────────
 
-const SNOOZE_OPTIONS = [0, 1, 2, 3, 4, 5];
+// ─── Component ───────────────────────────────────────────────────────────────
 
-function isoWeekKey(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const date = new Date(y, m - 1, d);
-  const dayOfWeek = date.getDay() === 0 ? 7 : date.getDay();
-  const thursday = new Date(date.getTime() + (4 - dayOfWeek) * 86_400_000);
-  const year = thursday.getFullYear();
-  const startOfYear = new Date(year, 0, 1);
-  const dow1 = startOfYear.getDay() === 0 ? 7 : startOfYear.getDay();
-  const startOfW1 = new Date(startOfYear.getTime() - (dow1 - 1) * 86_400_000);
-  const week = Math.floor((thursday.getTime() - startOfW1.getTime()) / (7 * 86_400_000)) + 1;
-  return `${year}-W${String(week).padStart(2, "0")}`;
-}
+const OPTIONS = [0, 1, 2, 3, 4, 5];
 
 export default function SnoozeTracker() {
-  const today = todayStr();
-  const [logs, setLogs] = useState<SnoozeLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [selectedCount, setSelectedCount] = useState<number | null>(null);
+  const today     = todayStr();
+  const yesterday = yesterdayStr();
+
+  const [logs, setLogs]           = useState<SnoozeLog[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [saving, setSaving]       = useState(false);
+  const [useLocal, setUseLocal]   = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [useLocal, setUseLocal] = useState(false); // true = Supabase unavailable
+
+  // Today
+  const [selected, setSelected]         = useState<number | null>(null);
+  const [submittedToday, setSubmittedToday] = useState(false);
+
+  // Yesterday form
+  const [showYesterday, setShowYesterday]           = useState(false);
+  const [selectedYesterday, setSelectedYesterday]   = useState<number | null>(null);
+  const [savingYesterday, setSavingYesterday]       = useState(false);
 
   async function fetchLogs() {
     setLoading(true);
-    try {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 13);
-      const cutoffStr = cutoff.toISOString().split("T")[0];
-
-      const { data, error } = await supabase
-        .from("snooze_logs")
-        .select("*")
-        .gte("date", cutoffStr)
-        .order("date", { ascending: false });
-
-      if (error) {
-        // Supabase not available — use localStorage
-        setUseLocal(true);
-        const local = lsLoad();
-        setLogs(local);
-        const todayEntry = local.find((l) => l.date === today);
-        setSelectedCount(todayEntry ? todayEntry.count : null);
-        return;
-      }
-
-      setUseLocal(false);
-      const mapped = ((data ?? []) as Record<string, unknown>[]).map(mapRow);
-      setLogs(mapped);
-      const todayEntry = mapped.find((l) => l.date === today);
-      setSelectedCount(todayEntry ? todayEntry.count : null);
-    } catch {
-      // Any error — fall back to localStorage
+    if (!SUPABASE_ENABLED) {
       setUseLocal(true);
       const local = lsLoad();
       setLogs(local);
-      const todayEntry = local.find((l) => l.date === today);
-      setSelectedCount(todayEntry ? todayEntry.count : null);
-    } finally {
+      const t = local.find(l => l.date === today);
+      if (t) { setSelected(t.count); setSubmittedToday(true); }
       setLoading(false);
+      return;
+    }
+    try {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 30);
+      const { data, error } = await supabase
+        .from("snooze_logs")
+        .select("*")
+        .gte("date", cutoff.toISOString().split("T")[0])
+        .order("date", { ascending: false });
+      if (error) throw error;
+      const mapped = ((data ?? []) as Record<string, unknown>[]).map(mapRow);
+      setLogs(mapped);
+      setUseLocal(false);
+      const t = mapped.find(l => l.date === today);
+      if (t) { setSelected(t.count); setSubmittedToday(true); }
+    } catch {
+      setUseLocal(true);
+      const local = lsLoad();
+      setLogs(local);
+      const t = local.find(l => l.date === today);
+      if (t) { setSelected(t.count); setSubmittedToday(true); }
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => { fetchLogs(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  async function save(date: string, count: number): Promise<SnoozeLog[]> {
+    const entry: SnoozeLog = { id: date, date, count, createdAt: new Date().toISOString() };
+    if (useLocal) {
+      const updated = lsUpsert(logs, entry);
+      lsSave(updated);
+      setLogs(updated);
+      return updated;
+    }
+    try {
+      const { error } = await supabase.from("snooze_logs").upsert(
+        { id: date, date, count, created_at: new Date().toISOString() },
+        { onConflict: "date" }
+      );
+      if (error) throw error;
+      await fetchLogs();
+      return logs; // fetchLogs updates state; return value unused
+    } catch {
+      setUseLocal(true);
+      const updated = lsUpsert(logs, entry);
+      lsSave(updated);
+      setLogs(updated);
+      return updated;
     }
   }
 
-  useEffect(() => {
-    fetchLogs();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function handleSave(count: number) {
-    setSelectedCount(count);
+  async function handleSubmit() {
+    if (selected === null || submittedToday) return;
     setSaving(true);
-    try {
-      if (useLocal) {
-        const updated = lsUpsert(today, count);
-        setLogs(updated);
-      } else {
-        await supabase.from("snooze_logs").upsert(
-          { id: today, date: today, count, created_at: new Date().toISOString() },
-          { onConflict: "date" }
-        );
-        await fetchLogs();
-      }
-    } catch {
-      // If Supabase save fails, fall back to local
-      const updated = lsUpsert(today, count);
-      setLogs(updated);
-      setUseLocal(true);
-    } finally {
-      setSaving(false);
-    }
+    await save(today, selected);
+    setSubmittedToday(true);
+    setSaving(false);
+  }
+
+  async function handleSubmitYesterday() {
+    if (selectedYesterday === null) return;
+    setSavingYesterday(true);
+    await save(yesterday, selectedYesterday);
+    setShowYesterday(false);
+    setSelectedYesterday(null);
+    setSavingYesterday(false);
   }
 
   if (loading) return <div className="card animate-pulse h-32" />;
 
-  const todayEntry = logs.find((l) => l.date === today);
-
-  const logMap = new Map(logs.map((l) => [l.date, l.count]));
-
-  const [ty, tm, td] = today.split("-").map(Number);
-  const todayDate = new Date(ty, tm - 1, td);
-  const todayDow = todayDate.getDay() === 0 ? 7 : todayDate.getDay();
-  const mondayDate = new Date(todayDate.getTime() - (todayDow - 1) * 86_400_000);
-  const allDaysThisWeek: string[] = [];
-  for (let i = 0; i < todayDow; i++) {
-    const d = new Date(mondayDate.getTime() + i * 86_400_000);
-    allDaysThisWeek.push(d.toISOString().split("T")[0]);
-  }
-
-  void isoWeekKey; // used indirectly
-
-  const weekComplete =
-    allDaysThisWeek.length === 7 &&
-    allDaysThisWeek.every((d) => logMap.has(d) && logMap.get(d) === 0);
-
-  const weekAllZeroSoFar =
-    allDaysThisWeek.length > 0 &&
-    allDaysThisWeek.every((d) => logMap.has(d) && logMap.get(d) === 0);
-
-  const logsWithData = logs.filter((l) => l.date !== today);
-  const avgSnoozes =
-    logsWithData.length > 0
-      ? (logsWithData.reduce((s, l) => s + l.count, 0) / logsWithData.length).toFixed(1)
-      : null;
-
-  const chartDays: { date: string; count: number | null }[] = [];
-  for (let i = 13; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const str = d.toISOString().split("T")[0];
-    chartDays.push({ date: str, count: logMap.has(str) ? logMap.get(str)! : null });
-  }
-  const maxCount = Math.max(...chartDays.map((d) => d.count ?? 0), 1);
+  const yesterdayLog  = logs.find(l => l.date === yesterday);
+  const historyLogs   = logs.filter(l => l.date !== today);
 
   return (
     <div className="card">
-      <div className="mb-3">
-        <div className="flex items-center justify-between">
-          <h2 className="section-title">⏰ Snooze Tracker</h2>
-          {useLocal && (
-            <span className="text-[10px] text-slate-300 font-medium">local only</span>
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="section-title">⏰ Snooze Tracker</h2>
+        {useLocal && <span className="text-[10px] text-slate-300 font-medium">local only</span>}
+      </div>
+      <p className="text-xs text-slate-400 mb-4">How many times did you hit snooze today?</p>
+
+      {/* Today */}
+      {submittedToday ? (
+        <div className={`rounded-2xl px-4 py-3 mb-4 border ${
+          selected === 0 ? "bg-emerald-50 border-emerald-100" : "bg-amber-50 border-amber-200"
+        }`}>
+          <p className="text-sm font-bold text-slate-800">
+            {selected === 0
+              ? "✅ Zero snoozes today!"
+              : `${selected === 5 ? "5+" : selected} snooze${selected !== 1 ? "s" : ""} logged`}
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5">Already submitted for today</p>
+        </div>
+      ) : (
+        <>
+          <div className="flex gap-2 mb-3">
+            {OPTIONS.map(n => (
+              <button
+                key={n}
+                onClick={() => setSelected(n)}
+                className={`flex-1 h-11 rounded-xl text-sm font-bold border transition-all ${
+                  selected === n
+                    ? n === 0
+                      ? "bg-emerald-600 text-white border-emerald-600"
+                      : "bg-orange-500 text-white border-orange-500"
+                    : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
+                }`}
+              >
+                {n === 5 ? "5+" : n}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={handleSubmit}
+            disabled={selected === null || saving}
+            className="btn-primary w-full mb-4 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {saving ? "Saving…" : "Submit"}
+          </button>
+        </>
+      )}
+
+      {/* Log yesterday — only if not already logged */}
+      {!yesterdayLog && (
+        <div className="mb-4">
+          {showYesterday ? (
+            <div className="border border-slate-100 rounded-2xl p-3 bg-slate-50/50">
+              <p className="text-xs font-semibold text-slate-500 mb-2">
+                How many snoozes yesterday?
+              </p>
+              <div className="flex gap-2 mb-3">
+                {OPTIONS.map(n => (
+                  <button
+                    key={n}
+                    onClick={() => setSelectedYesterday(n)}
+                    className={`flex-1 h-9 rounded-xl text-xs font-bold border transition-all ${
+                      selectedYesterday === n
+                        ? n === 0 ? "bg-emerald-600 text-white border-emerald-600" : "bg-orange-500 text-white border-orange-500"
+                        : "bg-white text-slate-600 border-slate-200"
+                    }`}
+                  >
+                    {n === 5 ? "5+" : n}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSubmitYesterday}
+                  disabled={selectedYesterday === null || savingYesterday}
+                  className="btn-primary text-xs py-1.5 px-4 disabled:opacity-40"
+                >
+                  {savingYesterday ? "Saving…" : "Save"}
+                </button>
+                <button
+                  onClick={() => { setShowYesterday(false); setSelectedYesterday(null); }}
+                  className="text-xs text-slate-400 hover:text-slate-600"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowYesterday(true)}
+              className="text-xs text-blue-600 font-semibold"
+            >
+              + Log yesterday
+            </button>
           )}
         </div>
-        <p className="text-xs text-slate-400 mt-0.5">How many times did you snooze today?</p>
-      </div>
-
-      {/* Coffee win banner */}
-      {weekComplete && (
-        <div className="mb-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-center gap-3">
-          <span className="text-2xl">☕</span>
-          <div>
-            <p className="text-sm font-bold text-amber-800">Zero snoozes all week!</p>
-            <p className="text-xs text-amber-600">You earned a coffee ☕</p>
-          </div>
-        </div>
       )}
 
-      {!weekComplete && weekAllZeroSoFar && allDaysThisWeek.length > 1 && (
-        <div className="mb-3 bg-emerald-50 border border-emerald-100 rounded-2xl px-4 py-2 text-xs text-emerald-700 font-semibold">
-          🌟 {allDaysThisWeek.length} day{allDaysThisWeek.length !== 1 ? "s" : ""} snooze-free this week — keep going!
-        </div>
-      )}
-
-      {/* Today's picker */}
-      <div className="mb-1">
-        <p className="label mb-2">Snooze count</p>
-        <div className="flex gap-2">
-          {SNOOZE_OPTIONS.map((n) => (
-            <button
-              key={n}
-              onClick={() => handleSave(n)}
-              disabled={saving}
-              className={`flex-1 h-10 rounded-xl text-sm font-bold border transition-all ${
-                selectedCount === n
-                  ? n === 0
-                    ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
-                    : "bg-orange-500 text-white border-orange-500 shadow-sm"
-                  : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-600"
-              } disabled:opacity-50`}
-            >
-              {n === 5 ? "5+" : n}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {todayEntry !== undefined && (
-        <p className="text-xs text-slate-400 mt-1.5">
-          {todayEntry.count === 0
-            ? "✅ No snoozes today!"
-            : `${todayEntry.count === 5 ? "5+" : todayEntry.count} snooze${todayEntry.count !== 1 ? "s" : ""} logged`}
-          {saving && " — saving…"}
-        </p>
-      )}
-
-      {avgSnoozes !== null && (
-        <p className="text-xs text-slate-400 mt-1">
-          14-day avg: <span className="font-semibold text-slate-600">{avgSnoozes}</span> snoozes/day
-        </p>
-      )}
-
-      {/* Mini bar chart */}
-      {logs.length > 0 && (
-        <div className="mt-3">
+      {/* History */}
+      {historyLogs.length > 0 && (
+        <div>
           <button
-            onClick={() => setShowHistory((v) => !v)}
-            className="text-xs font-semibold text-blue-600 mb-2"
+            onClick={() => setShowHistory(v => !v)}
+            className="text-xs text-blue-600 font-semibold"
           >
-            {showHistory ? "▲ Hide chart" : "▼ Last 14 days"}
+            {showHistory
+              ? "▲ Hide history"
+              : `▼ ${historyLogs.length} previous day${historyLogs.length !== 1 ? "s" : ""}`}
           </button>
 
           {showHistory && (
-            <div className="flex items-end gap-0.5 h-16 mt-1">
-              {chartDays.map(({ date, count }) => {
-                const isToday = date === today;
-                const height = count === null ? 0 : Math.max((count / maxCount) * 100, count > 0 ? 8 : 0);
-                const barColor =
-                  count === null
-                    ? "bg-slate-100"
-                    : count === 0
-                    ? "bg-emerald-400"
-                    : count <= 2
-                    ? "bg-amber-400"
-                    : "bg-red-400";
-                return (
-                  <div key={date} className="flex-1 flex flex-col items-center justify-end gap-0.5">
-                    <div
-                      className={`w-full rounded-t transition-all ${barColor} ${isToday ? "ring-1 ring-blue-400" : ""}`}
-                      style={{ height: count === null ? "4px" : count === 0 ? "4px" : `${height}%` }}
-                      title={`${formatDateShort(date)}: ${count === null ? "no data" : count === 5 ? "5+" : count}`}
-                    />
-                    {isToday && (
-                      <span className="text-[8px] text-blue-500 font-bold leading-none">•</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {showHistory && (
-            <div className="flex justify-between mt-0.5">
-              <span className="text-[9px] text-slate-300">14 days ago</span>
-              <span className="text-[9px] text-slate-300">Today</span>
+            <div className="mt-3 divide-y divide-slate-50">
+              {historyLogs.map(log => (
+                <div key={log.id} className="flex items-center justify-between py-2">
+                  <span className="text-xs text-slate-500">{formatDateShort(log.date)}</span>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${
+                    log.count === 0
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-amber-100 text-amber-700"
+                  }`}>
+                    {log.count === 5 ? "5+" : log.count} {log.count === 1 ? "snooze" : "snoozes"}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
         </div>

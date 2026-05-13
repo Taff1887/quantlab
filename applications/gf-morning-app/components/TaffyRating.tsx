@@ -7,31 +7,13 @@ const LS_KEY = "taffy_ratings_local";
 
 interface RatingRow {
   id: string;
-  date: string;       // YYYY-MM-DD
+  date: string;
   rating: number;
   feedback: string;
   createdAt: string;
 }
 
-type TimePeriod = "all" | "2w" | "1m" | "3m";
-
-const PERIOD_OPTIONS: { label: string; value: TimePeriod }[] = [
-  { label: "All time", value: "all" },
-  { label: "Last 2 weeks", value: "2w" },
-  { label: "Last month", value: "1m" },
-  { label: "Last 3 months", value: "3m" },
-];
-
 function todayStr() { return new Date().toISOString().split("T")[0]; }
-
-function cutoffDate(period: TimePeriod): string | null {
-  if (period === "all") return null;
-  const d = new Date();
-  if (period === "2w") d.setDate(d.getDate() - 14);
-  if (period === "1m") d.setMonth(d.getMonth() - 1);
-  if (period === "3m") d.setMonth(d.getMonth() - 3);
-  return d.toISOString().split("T")[0];
-}
 
 function formatDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -42,10 +24,10 @@ function formatDate(dateStr: string): string {
 
 function mapRow(row: Record<string, unknown>): RatingRow {
   return {
-    id: row.id as string,
-    date: row.date as string,
-    rating: row.rating as number,
-    feedback: (row.feedback as string) ?? "",
+    id:        row.id as string,
+    date:      row.date as string,
+    rating:    row.rating as number,
+    feedback:  (row.feedback as string) ?? "",
     createdAt: (row.created_at as string) ?? (row.createdAt as string) ?? "",
   };
 }
@@ -65,73 +47,54 @@ function ratingEmoji(n: number) {
   return "🥰";
 }
 
-// ─── localStorage helpers ─────────────────────────────────────────────────────
+// ─── localStorage helpers ────────────────────────────────────────────────────
 
 function lsLoad(): RatingRow[] {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw) as RatingRow[];
-    return parsed.sort((a, b) => b.date.localeCompare(a.date));
-  } catch {
-    return [];
-  }
+    return (JSON.parse(raw) as RatingRow[]).sort((a, b) => b.date.localeCompare(a.date));
+  } catch { return []; }
 }
 
 function lsSave(rows: RatingRow[]) {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(rows));
-  } catch {
-    /* ignore */
-  }
+  try { localStorage.setItem(LS_KEY, JSON.stringify(rows)); } catch {}
 }
 
 function lsUpsert(rows: RatingRow[], entry: RatingRow): RatingRow[] {
-  const filtered = rows.filter((r) => r.date !== entry.date);
-  return [entry, ...filtered].sort((a, b) => b.date.localeCompare(a.date));
+  return [entry, ...rows.filter(r => r.date !== entry.date)]
+    .sort((a, b) => b.date.localeCompare(a.date));
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
+// ─── Component ───────────────────────────────────────────────────────────────
 
 export default function TaffyRating() {
   const today = todayStr();
 
-  const [rows, setRows] = useState<RatingRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [rows, setRows]         = useState<RatingRow[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState(false);
+  const [saved, setSaved]       = useState(false);
   const [useLocal, setUseLocal] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [historyPeriod, setHistoryPeriod] = useState<TimePeriod>("all");
   const [expandedNote, setExpandedNote] = useState<string | null>(null);
 
-  // Today's submit form state
-  const [selectedRating, setSelectedRating] = useState<number | null>(null);
-  const [feedback, setFeedback] = useState("");
+  // Submit form
+  const [formDate, setFormDate] = useState(today);
+  const [rating, setRating]     = useState<number | null>(null);
+  const [notes, setNotes]       = useState("");
 
-  // Backdate form
-  const [showPastForm, setShowPastForm] = useState(false);
-  const [pastDate, setPastDate] = useState("");
-  const [pastRating, setPastRating] = useState<number>(5);
-  const [pastFeedback, setPastFeedback] = useState("");
-  const [savingPast, setSavingPast] = useState(false);
-
-  // Inline edit state for history rows
-  const [editRowId, setEditRowId] = useState<string | null>(null);
-  const [editRowDate, setEditRowDate] = useState("");
-  const [editRowRating, setEditRowRating] = useState<number>(5);
-  const [editRowFeedback, setEditRowFeedback] = useState("");
-  const [savingEdit, setSavingEdit] = useState(false);
+  // Inline edit
+  const [editId, setEditId]           = useState<string | null>(null);
+  const [editRating, setEditRating]   = useState<number>(5);
+  const [editNotes, setEditNotes]     = useState("");
+  const [savingEdit, setSavingEdit]   = useState(false);
 
   async function fetchRatings() {
     setLoading(true);
     if (!SUPABASE_ENABLED) {
       setUseLocal(true);
-      const local = lsLoad();
-      setRows(local);
-      const todayEntry = local.find((r) => r.date === today);
-      if (todayEntry) { setSelectedRating(todayEntry.rating); setFeedback(todayEntry.feedback ?? ""); }
-      else { setSelectedRating(null); setFeedback(""); }
+      setRows(lsLoad());
       setLoading(false);
       return;
     }
@@ -140,40 +103,31 @@ export default function TaffyRating() {
         .from("taffy_ratings")
         .select("*")
         .order("date", { ascending: false })
-        .limit(60);
+        .limit(200);
       if (error) throw error;
-      const mapped = ((data ?? []) as Record<string, unknown>[]).map(mapRow);
-      setRows(mapped);
+      setRows(((data ?? []) as Record<string, unknown>[]).map(mapRow));
       setUseLocal(false);
-      const todayEntry = mapped.find((r) => r.date === today);
-      if (todayEntry) { setSelectedRating(todayEntry.rating); setFeedback(todayEntry.feedback ?? ""); }
-      else { setSelectedRating(null); setFeedback(""); }
     } catch {
       setUseLocal(true);
-      const local = lsLoad();
-      setRows(local);
-      const todayEntry = local.find((r) => r.date === today);
-      if (todayEntry) { setSelectedRating(todayEntry.rating); setFeedback(todayEntry.feedback ?? ""); }
-      else { setSelectedRating(null); setFeedback(""); }
+      setRows(lsLoad());
     }
     setLoading(false);
   }
 
-  useEffect(() => {
-    fetchRatings();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { fetchRatings(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
-  // ─── Submit today's rating ──────────────────────────────────────────────────
+  // Pre-fill form when selected date already has a rating
+  useEffect(() => {
+    const existing = rows.find(r => r.date === formDate);
+    if (existing) { setRating(existing.rating); setNotes(existing.feedback ?? ""); }
+    else           { setRating(null); setNotes(""); }
+  }, [formDate, rows]);
 
   async function handleSubmit() {
-    if (!selectedRating) return;
+    if (!rating) return;
     setSaving(true);
     const entry: RatingRow = {
-      id: today,
-      date: today,
-      rating: selectedRating,
-      feedback,
+      id: formDate, date: formDate, rating, feedback: notes,
       createdAt: new Date().toISOString(),
     };
 
@@ -184,7 +138,7 @@ export default function TaffyRating() {
     } else {
       try {
         const { error } = await supabase.from("taffy_ratings").upsert(
-          { id: today, date: today, rating: selectedRating, feedback, created_at: new Date().toISOString() },
+          { id: formDate, date: formDate, rating, feedback: notes, created_at: new Date().toISOString() },
           { onConflict: "date" }
         );
         if (error) throw error;
@@ -201,109 +155,34 @@ export default function TaffyRating() {
     setTimeout(() => setSaved(false), 2500);
   }
 
-  // ─── Backdate form ──────────────────────────────────────────────────────────
-
-  function openPastForm() {
-    setPastDate("");
-    setPastRating(5);
-    setPastFeedback("");
-    setShowPastForm(true);
-  }
-
-  async function handleSavePast() {
-    if (!pastDate) return;
-    setSavingPast(true);
-    const entry: RatingRow = {
-      id: pastDate,
-      date: pastDate,
-      rating: pastRating,
-      feedback: pastFeedback,
-      createdAt: new Date().toISOString(),
-    };
-
-    if (useLocal) {
-      const updated = lsUpsert(rows, entry);
-      lsSave(updated);
-      setRows(updated);
-    } else {
-      try {
-        const { error } = await supabase.from("taffy_ratings").upsert(
-          { id: pastDate, date: pastDate, rating: pastRating, feedback: pastFeedback, created_at: new Date().toISOString() },
-          { onConflict: "date" }
-        );
-        if (error) throw error;
-        await fetchRatings();
-      } catch {
-        setUseLocal(true);
-        const updated = lsUpsert(rows, entry);
-        lsSave(updated);
-        setRows(updated);
-      }
-    }
-    setShowPastForm(false);
-    setSavingPast(false);
-  }
-
-  // ─── Inline edit/delete for history rows ────────────────────────────────────
-
-  function openEditRow(row: RatingRow) {
-    setEditRowId(row.id);
-    setEditRowDate(row.date);
-    setEditRowRating(row.rating);
-    setEditRowFeedback(row.feedback ?? "");
-    setExpandedNote(null);
-  }
-
-  function cancelEditRow() {
-    setEditRowId(null);
-  }
-
-  async function handleSaveEditRow(originalRow: RatingRow) {
-    if (!editRowDate) return;
+  async function handleSaveEdit(row: RatingRow) {
     setSavingEdit(true);
-    const updated: RatingRow = {
-      ...originalRow,
-      date: editRowDate,
-      rating: editRowRating,
-      feedback: editRowFeedback,
-    };
-
+    const updated: RatingRow = { ...row, rating: editRating, feedback: editNotes };
     if (useLocal) {
-      // Remove old entry by id, upsert by new date
-      const without = rows.filter((r) => r.id !== originalRow.id);
-      const newRows = lsUpsert(without, { ...updated, id: editRowDate });
-      lsSave(newRows);
-      setRows(newRows);
+      const newRows = lsUpsert(rows.filter(r => r.id !== row.id), updated);
+      lsSave(newRows); setRows(newRows);
     } else {
       try {
-        // If date changed, delete old and upsert new
-        if (editRowDate !== originalRow.date) {
-          await supabase.from("taffy_ratings").delete().eq("id", originalRow.id);
-        }
         const { error } = await supabase.from("taffy_ratings").upsert(
-          { id: editRowDate, date: editRowDate, rating: editRowRating, feedback: editRowFeedback, created_at: originalRow.createdAt },
+          { id: row.id, date: row.date, rating: editRating, feedback: editNotes, created_at: row.createdAt },
           { onConflict: "date" }
         );
         if (error) throw error;
         await fetchRatings();
       } catch {
         setUseLocal(true);
-        const without = rows.filter((r) => r.id !== originalRow.id);
-        const newRows = lsUpsert(without, { ...updated, id: editRowDate });
-        lsSave(newRows);
-        setRows(newRows);
+        const newRows = lsUpsert(rows.filter(r => r.id !== row.id), updated);
+        lsSave(newRows); setRows(newRows);
       }
     }
-    setEditRowId(null);
+    setEditId(null);
     setSavingEdit(false);
   }
 
-  async function handleDeleteRow(id: string) {
+  async function handleDelete(id: string) {
     if (useLocal) {
-      const updated = rows.filter((r) => r.id !== id);
-      lsSave(updated);
-      setRows(updated);
-      return;
+      const updated = rows.filter(r => r.id !== id);
+      lsSave(updated); setRows(updated); return;
     }
     try {
       const { error } = await supabase.from("taffy_ratings").delete().eq("id", id);
@@ -311,20 +190,15 @@ export default function TaffyRating() {
       await fetchRatings();
     } catch {
       setUseLocal(true);
-      const updated = rows.filter((r) => r.id !== id);
-      lsSave(updated);
-      setRows(updated);
+      const updated = rows.filter(r => r.id !== id);
+      lsSave(updated); setRows(updated);
     }
   }
 
   if (loading) return <div className="card animate-pulse h-40" />;
 
-  const todayEntry = rows.find((r) => r.date === today);
-
-  const cutoff = cutoffDate(historyPeriod);
-  const historyRows = rows
-    .filter((r) => r.date !== today)
-    .filter((r) => !cutoff || r.date >= cutoff);
+  const existingForDate = rows.find(r => r.date === formDate);
+  const isUpdate = !!existingForDate;
 
   return (
     <div className="card">
@@ -338,77 +212,30 @@ export default function TaffyRating() {
             </span>
           )}
         </div>
-        <button
-          onClick={showPastForm ? () => setShowPastForm(false) : openPastForm}
-          className="text-xs font-semibold text-blue-600 flex-shrink-0"
-        >
-          {showPastForm ? "Cancel" : "＋ Past rating"}
-        </button>
       </div>
 
-      {/* Backdate form */}
-      {showPastForm && (
-        <div className="border border-slate-100 rounded-2xl p-4 mb-4 space-y-3 bg-slate-50/50">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Add a past rating</p>
-          <div>
-            <label className="label">Date</label>
-            <input
-              type="date"
-              className="input"
-              value={pastDate}
-              max={today}
-              onChange={(e) => setPastDate(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label">Rating</label>
-            <div className="flex gap-1.5 flex-wrap mt-1">
-              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => setPastRating(n)}
-                  className={`w-9 h-9 rounded-xl text-sm font-bold border transition-all ${
-                    pastRating === n
-                      ? "bg-blue-600 text-white border-blue-600 shadow-sm scale-105"
-                      : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-600"
-                  }`}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="label">Feedback (optional)</label>
-            <textarea
-              value={pastFeedback}
-              onChange={(e) => setPastFeedback(e.target.value)}
-              rows={2}
-              className="input resize-none text-sm"
-              placeholder="Notes about that period…"
-            />
-          </div>
-          <button
-            onClick={handleSavePast}
-            disabled={!pastDate || savingPast}
-            className="btn-primary w-full disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {savingPast ? "Saving…" : "Save"}
-          </button>
-        </div>
-      )}
+      {/* Date */}
+      <div className="mb-3">
+        <label className="label">Date</label>
+        <input
+          type="date"
+          value={formDate}
+          max={today}
+          onChange={e => setFormDate(e.target.value)}
+          className="input"
+        />
+      </div>
 
       {/* Rating picker */}
-      <div className="mb-1">
-        <p className="label mb-2">Rate Taffy today</p>
+      <div className="mb-3">
+        <label className="label mb-2">Rating</label>
         <div className="flex gap-1.5 flex-wrap">
-          {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+          {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
             <button
               key={n}
-              onClick={() => setSelectedRating(n)}
+              onClick={() => setRating(n)}
               className={`w-9 h-9 rounded-xl text-sm font-bold border transition-all ${
-                selectedRating === n
+                rating === n
                   ? "bg-blue-600 text-white border-blue-600 shadow-sm scale-105"
                   : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-600"
               }`}
@@ -417,22 +244,17 @@ export default function TaffyRating() {
             </button>
           ))}
         </div>
+        {rating && <p className="text-xs text-slate-400 mt-1">{rating}/10 {ratingEmoji(rating)}</p>}
       </div>
 
-      {selectedRating && (
-        <p className="text-xs text-slate-400 mt-1 mb-3">
-          {selectedRating}/10 {ratingEmoji(selectedRating)}
-        </p>
-      )}
-
-      {/* Feedback textarea */}
+      {/* Notes */}
       <div className="mb-3">
-        <label className="label">Notes</label>
+        <label className="label">Notes (optional)</label>
         <textarea
-          value={feedback}
-          onChange={(e) => setFeedback(e.target.value)}
-          placeholder="What was great? What could be better? What did you find annoying?"
-          rows={3}
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder="What was great? What could be better?"
+          rows={2}
           className="input resize-none text-sm leading-relaxed"
         />
       </div>
@@ -440,160 +262,110 @@ export default function TaffyRating() {
       {/* Submit */}
       <button
         onClick={handleSubmit}
-        disabled={!selectedRating || saving}
+        disabled={!rating || saving}
         className={`w-full mb-4 disabled:opacity-40 disabled:cursor-not-allowed transition-colors ${
           saved
-            ? "bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-2xl text-sm"
+            ? "bg-emerald-500 text-white font-bold py-3 rounded-2xl text-sm"
             : "btn-primary"
         }`}
       >
-        {saving ? "Saving…" : saved ? "✓ Saved!" : todayEntry ? "Update today's rating" : "Submit rating"}
+        {saving ? "Saving…" : saved ? "✓ Saved!" : isUpdate ? "Update rating" : "Submit rating"}
       </button>
 
-      {/* Today's saved summary */}
-      {todayEntry && (
-        <div className={`flex items-center gap-2 mb-4 rounded-xl px-3 py-2 border ${ratingColor(todayEntry.rating)}`}>
-          <span className={`text-sm font-bold px-2.5 py-1 rounded-lg ${ratingColor(todayEntry.rating)}`}>
-            {todayEntry.rating}/10 {ratingEmoji(todayEntry.rating)}
-          </span>
-          <p className="text-xs italic opacity-80 line-clamp-1">
-            {todayEntry.feedback || "No notes added"}
-          </p>
-        </div>
-      )}
-
       {/* History */}
-      {historyRows.length > 0 && (
+      {rows.length > 0 && (
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <button
-              onClick={() => setShowHistory((v) => !v)}
-              className="text-xs text-blue-600 font-semibold"
-            >
-              {showHistory
-                ? "▲ Hide history"
-                : `▼ ${historyRows.length} previous rating${historyRows.length !== 1 ? "s" : ""}`}
-            </button>
-          </div>
+          <button
+            onClick={() => setShowHistory(v => !v)}
+            className="text-xs text-blue-600 font-semibold"
+          >
+            {showHistory
+              ? "▲ Hide history"
+              : `▼ ${rows.length} rating${rows.length !== 1 ? "s" : ""}`}
+          </button>
 
           {showHistory && (
-            <>
-              {/* Period filter */}
-              <select
-                value={historyPeriod}
-                onChange={(e) => setHistoryPeriod(e.target.value as TimePeriod)}
-                className="input text-sm mb-3"
-              >
-                {PERIOD_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-
-              <div className="space-y-1">
-                {historyRows.map((row) => {
-                  const isEditing = editRowId === row.id;
-                  return (
-                    <div key={row.date} className="border-t border-slate-50 pt-2 pb-1">
-                      {isEditing ? (
-                        // ── Inline edit form ──────────────────────────────
-                        <div className="space-y-2 py-1">
-                          <div>
-                            <label className="label text-xs">Date</label>
-                            <input
-                              type="date"
-                              className="input text-sm"
-                              value={editRowDate}
-                              max={today}
-                              onChange={(e) => setEditRowDate(e.target.value)}
-                            />
-                          </div>
-                          <div>
-                            <label className="label text-xs">Rating</label>
-                            <div className="flex gap-1 flex-wrap mt-1">
-                              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-                                <button
-                                  key={n}
-                                  type="button"
-                                  onClick={() => setEditRowRating(n)}
-                                  className={`w-8 h-8 rounded-lg text-xs font-bold border transition-all ${
-                                    editRowRating === n
-                                      ? "bg-blue-600 text-white border-blue-600"
-                                      : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
-                                  }`}
-                                >
-                                  {n}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                          <div>
-                            <label className="label text-xs">Notes</label>
-                            <textarea
-                              className="input text-sm resize-none"
-                              rows={2}
-                              value={editRowFeedback}
-                              onChange={(e) => setEditRowFeedback(e.target.value)}
-                            />
-                          </div>
-                          <div className="flex gap-2">
+            <div className="space-y-1 mt-2">
+              {rows.map(row => {
+                const isEditing = editId === row.id;
+                return (
+                  <div key={row.id} className="border-t border-slate-50 pt-2 pb-1">
+                    {isEditing ? (
+                      <div className="space-y-2 py-1">
+                        <div className="flex gap-1 flex-wrap">
+                          {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
                             <button
-                              onClick={() => handleSaveEditRow(row)}
-                              disabled={savingEdit}
-                              className="btn-primary text-xs py-1 px-3 disabled:opacity-40"
+                              key={n}
+                              onClick={() => setEditRating(n)}
+                              className={`w-8 h-8 rounded-lg text-xs font-bold border transition-all ${
+                                editRating === n
+                                  ? "bg-blue-600 text-white border-blue-600"
+                                  : "bg-white text-slate-600 border-slate-200"
+                              }`}
                             >
-                              {savingEdit ? "Saving…" : "Save"}
+                              {n}
+                            </button>
+                          ))}
+                        </div>
+                        <textarea
+                          className="input text-sm resize-none"
+                          rows={2}
+                          value={editNotes}
+                          onChange={e => setEditNotes(e.target.value)}
+                          placeholder="Notes…"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleSaveEdit(row)}
+                            disabled={savingEdit}
+                            className="btn-primary text-xs py-1 px-3 disabled:opacity-40"
+                          >
+                            {savingEdit ? "Saving…" : "Save"}
+                          </button>
+                          <button onClick={() => setEditId(null)} className="text-xs text-slate-400">Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-3">
+                          <span className={`text-xs font-bold px-2 py-1 rounded-lg border flex-shrink-0 ${ratingColor(row.rating)}`}>
+                            {row.rating}/10 {ratingEmoji(row.rating)}
+                          </span>
+                          <p className="text-xs text-slate-500 flex-1">{formatDate(row.date)}</p>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {row.feedback && (
+                              <button
+                                onClick={() => setExpandedNote(expandedNote === row.id ? null : row.id)}
+                                className="text-xs text-blue-400 font-semibold"
+                              >
+                                {expandedNote === row.id ? "▲" : "▼ notes"}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => { setEditId(row.id); setEditRating(row.rating); setEditNotes(row.feedback ?? ""); setExpandedNote(null); }}
+                              className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                            >
+                              Edit
                             </button>
                             <button
-                              onClick={cancelEditRow}
-                              className="text-xs text-slate-400 hover:text-slate-600"
+                              onClick={() => handleDelete(row.id)}
+                              className="text-slate-300 hover:text-red-400 transition-colors text-sm"
                             >
-                              Cancel
+                              ✕
                             </button>
                           </div>
                         </div>
-                      ) : (
-                        // ── Normal row view ───────────────────────────────
-                        <>
-                          <div className="flex items-center gap-3">
-                            <span className={`text-xs font-bold px-2 py-1 rounded-lg border flex-shrink-0 ${ratingColor(row.rating)}`}>
-                              {row.rating}/10
-                            </span>
-                            <p className="text-xs text-slate-500 flex-1">{formatDate(row.date)}</p>
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                              {row.feedback && (
-                                <button
-                                  onClick={() => setExpandedNote(expandedNote === row.date ? null : row.date)}
-                                  className="text-xs text-blue-400 font-semibold"
-                                >
-                                  {expandedNote === row.date ? "▲" : "▼ notes"}
-                                </button>
-                              )}
-                              <button
-                                onClick={() => openEditRow(row)}
-                                className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => handleDeleteRow(row.id)}
-                                className="text-slate-300 hover:text-red-400 transition-colors text-sm"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          </div>
-                          {expandedNote === row.date && row.feedback && (
-                            <p className="text-xs text-slate-400 italic mt-1.5 ml-1 leading-relaxed">
-                              &ldquo;{row.feedback}&rdquo;
-                            </p>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </>
+                        {expandedNote === row.id && row.feedback && (
+                          <p className="text-xs text-slate-400 italic mt-1.5 ml-1 leading-relaxed">
+                            &ldquo;{row.feedback}&rdquo;
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       )}

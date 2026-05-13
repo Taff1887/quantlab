@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
 
 interface Question {
   q: string;
@@ -106,6 +106,43 @@ interface QuizState {
   coffee_won: boolean;
 }
 
+// ─── localStorage helpers ────────────────────────────────────────────────────
+
+const LS_ANSWERS_KEY = "quiz_answers_local";
+const LS_STATE_KEY   = "quiz_state_local";
+
+function lsLoadAnswer(date: string): QuizAnswer | null {
+  try {
+    const raw = localStorage.getItem(LS_ANSWERS_KEY);
+    if (!raw) return null;
+    const map = JSON.parse(raw) as Record<string, QuizAnswer>;
+    return map[date] ?? null;
+  } catch { return null; }
+}
+
+function lsSaveAnswer(answer: QuizAnswer) {
+  try {
+    const raw = localStorage.getItem(LS_ANSWERS_KEY);
+    const map = raw ? (JSON.parse(raw) as Record<string, QuizAnswer>) : {};
+    map[answer.date] = answer;
+    localStorage.setItem(LS_ANSWERS_KEY, JSON.stringify(map));
+  } catch {}
+}
+
+function lsLoadState(): QuizState | null {
+  try {
+    const raw = localStorage.getItem(LS_STATE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as QuizState;
+  } catch { return null; }
+}
+
+function lsSaveState(state: QuizState) {
+  try { localStorage.setItem(LS_STATE_KEY, JSON.stringify(state)); } catch {}
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
 function todayStr() { return new Date().toISOString().split("T")[0]; }
 
 function getWeekKey(date = new Date()): string {
@@ -130,6 +167,8 @@ function streakEmoji(n: number) {
   return `${n} 🔥🔥`;
 }
 
+// ─── Component ───────────────────────────────────────────────────────────────
+
 export default function QuizCard() {
   const today = todayStr();
   const currentWeek = getWeekKey();
@@ -145,49 +184,81 @@ export default function QuizCard() {
   async function load() {
     setLoading(true);
 
-    // Load today's answer
-    const { data: ansData } = await supabase
-      .from("quiz_answers")
-      .select("*")
-      .eq("date", today)
-      .maybeSingle();
+    // ── Load today's answer ──────────────────────────────────────────────────
+    let answerFromDb: QuizAnswer | null = null;
 
-    // Load quiz state
-    const { data: stateData } = await supabase
-      .from("quiz_state")
-      .select("*")
-      .eq("id", "singleton")
-      .maybeSingle();
+    if (SUPABASE_ENABLED) {
+      try {
+        const { data: ansData, error } = await supabase
+          .from("quiz_answers")
+          .select("*")
+          .eq("date", today)
+          .maybeSingle();
+        if (!error && ansData) {
+          answerFromDb = {
+            date:           ansData.date as string,
+            question_index: ansData.question_index as number,
+            selected_index: ansData.selected_index as number,
+            is_correct:     ansData.is_correct as boolean,
+          };
+          // Mirror to localStorage so it's available if Supabase goes down
+          lsSaveAnswer(answerFromDb);
+        }
+      } catch { /* fall through to localStorage */ }
+    }
 
+    // Fall back to localStorage if Supabase didn't return anything
+    if (!answerFromDb) {
+      answerFromDb = lsLoadAnswer(today);
+    }
+
+    // ── Load quiz state ──────────────────────────────────────────────────────
     let state: QuizState = { week: currentWeek, streak: 0, coffee_won: false };
 
-    if (stateData) {
-      // Reset on new week
-      if ((stateData.week as string) !== currentWeek) {
-        state = { week: currentWeek, streak: 0, coffee_won: false };
-        await supabase.from("quiz_state").upsert({
-          id: "singleton", week: currentWeek, streak: 0, coffee_won: false, updated_at: new Date().toISOString(),
-        });
-      } else {
-        state = {
-          week: stateData.week as string,
-          streak: stateData.streak as number,
-          coffee_won: stateData.coffee_won as boolean,
-        };
+    if (SUPABASE_ENABLED) {
+      try {
+        const { data: stateData, error } = await supabase
+          .from("quiz_state")
+          .select("*")
+          .eq("id", "singleton")
+          .maybeSingle();
+
+        if (!error && stateData) {
+          if ((stateData.week as string) !== currentWeek) {
+            // New week — reset
+            state = { week: currentWeek, streak: 0, coffee_won: false };
+            await supabase.from("quiz_state").upsert({
+              id: "singleton", week: currentWeek, streak: 0, coffee_won: false,
+              updated_at: new Date().toISOString(),
+            });
+          } else {
+            state = {
+              week:       stateData.week as string,
+              streak:     stateData.streak as number,
+              coffee_won: stateData.coffee_won as boolean,
+            };
+          }
+          lsSaveState(state);
+        }
+      } catch { /* fall through to localStorage */ }
+    }
+
+    // Fall back to localStorage if Supabase didn't return anything
+    if (state.streak === 0 && !state.coffee_won) {
+      const lsState = lsLoadState();
+      if (lsState) {
+        // Reset on new week
+        state = lsState.week === currentWeek
+          ? lsState
+          : { week: currentWeek, streak: 0, coffee_won: false };
       }
     }
 
     setQuizState(state);
 
-    if (ansData) {
-      const a: QuizAnswer = {
-        date: ansData.date as string,
-        question_index: ansData.question_index as number,
-        selected_index: ansData.selected_index as number,
-        is_correct: ansData.is_correct as boolean,
-      };
-      setTodayAnswer(a);
-      setSelected(a.selected_index);
+    if (answerFromDb) {
+      setTodayAnswer(answerFromDb);
+      setSelected(answerFromDb.selected_index);
       setRevealed(true);
     }
 
@@ -208,24 +279,38 @@ export default function QuizCard() {
     const newState: QuizState = { week: currentWeek, streak: newStreak, coffee_won: coffeeWon };
     setQuizState(newState);
 
-    // Save answer
-    await supabase.from("quiz_answers").upsert({
-      id: today,
+    const answer: QuizAnswer = {
       date: today,
       question_index: questionIdx,
       selected_index: idx,
       is_correct: isCorrect,
-      created_at: new Date().toISOString(),
-    }, { onConflict: "date" });
+    };
+    setTodayAnswer(answer);
 
-    // Save state
-    await supabase.from("quiz_state").upsert({
-      id: "singleton",
-      week: currentWeek,
-      streak: newStreak,
-      coffee_won: coffeeWon,
-      updated_at: new Date().toISOString(),
-    });
+    // Always save to localStorage first (instant, reliable)
+    lsSaveAnswer(answer);
+    lsSaveState(newState);
+
+    // Then try Supabase
+    if (SUPABASE_ENABLED) {
+      try {
+        await supabase.from("quiz_answers").upsert({
+          id: today, date: today,
+          question_index: questionIdx,
+          selected_index: idx,
+          is_correct: isCorrect,
+          created_at: new Date().toISOString(),
+        }, { onConflict: "date" });
+
+        await supabase.from("quiz_state").upsert({
+          id: "singleton",
+          week: currentWeek,
+          streak: newStreak,
+          coffee_won: coffeeWon,
+          updated_at: new Date().toISOString(),
+        });
+      } catch { /* localStorage already saved — silent fail */ }
+    }
   }
 
   if (loading) return <div className="card animate-pulse h-40" />;
