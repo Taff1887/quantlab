@@ -233,6 +233,17 @@ export default function CalendarCard() {
 
   const selectedEvents = selectedDay ? eventsOnDay(selectedDay) : [];
 
+  // Next upcoming event (today or future, sorted by start date)
+  const nextEvent = [...events]
+    .filter((e) => e.startDate >= today)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate))[0] ?? null;
+
+  function daysUntil(dateStr: string): number {
+    return Math.round(
+      (dateFromYMD(dateStr).getTime() - dateFromYMD(today).getTime()) / 86_400_000
+    );
+  }
+
   return (
     <div className="card">
       <div className="bg-gradient-to-r from-sky-400 to-blue-500 -mx-5 -mt-5 px-5 pt-4 pb-3 mb-4 rounded-t-2xl">
@@ -252,6 +263,37 @@ export default function CalendarCard() {
           </button>
         </div>
       </div>
+
+      {/* Next upcoming event */}
+      {nextEvent && (
+        <div
+          className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 mb-4 cursor-pointer hover:bg-blue-100/60 transition-colors"
+          onClick={() => {
+            setSelectedDay(nextEvent.startDate);
+            setYear(dateFromYMD(nextEvent.startDate).getFullYear());
+            setMonth(dateFromYMD(nextEvent.startDate).getMonth());
+          }}
+        >
+          <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wide mb-1">Next up</p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-slate-800 leading-snug flex-1">{nextEvent.title}</p>
+            <div className="text-right flex-shrink-0">
+              {daysUntil(nextEvent.startDate) === 0 ? (
+                <span className="text-xs font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">Today</span>
+              ) : daysUntil(nextEvent.startDate) === 1 ? (
+                <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">Tomorrow</span>
+              ) : (
+                <span className="text-xs font-bold text-slate-500">
+                  in {daysUntil(nextEvent.startDate)} days
+                </span>
+              )}
+              <p className="text-xs text-slate-400 mt-0.5">
+                {dateFromYMD(nextEvent.startDate).toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" })}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Month navigator */}
       <div className="flex items-center justify-between mb-3">
