@@ -3,8 +3,6 @@ import { useEffect, useState } from "react";
 import type { TransportOption, WharfName } from "../types";
 import { fetchTransportOptions } from "../lib/transportService";
 
-type SortKey = "departure" | "arrival" | "total";
-
 const FERRY_WHARVES: { label: string; value: WharfName }[] = [
   { label: "Taronga Zoo", value: "Taronga Zoo" },
   { label: "South Mosman", value: "South Mosman" },
@@ -28,32 +26,19 @@ function nowSydneyMins(): number {
   return timeToMins(t);
 }
 
-function formatDist(m: number): string {
-  return m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${m}m`;
-}
-
-const SORT_LABELS: Record<SortKey, string> = {
-  departure: "Departure",
-  arrival: "Arrival",
-  total: "Total time",
-};
-
 export default function TransportCard() {
   const [options, setOptions] = useState<TransportOption[]>([]);
   const [isRealtime, setIsRealtime] = useState(false);
-  const [driveIsRealtime, setDriveIsRealtime] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [selectedWharves, setSelectedWharves] = useState<WharfName[]>([
     "Taronga Zoo", "South Mosman", "Mosman Bay", "Cremorne Point", "Old Cremorne",
   ]);
-  const [sort, setSort] = useState<SortKey>("departure");
   const [expanded, setExpanded] = useState(false);
 
   function refresh() {
-    fetchTransportOptions().then(({ options, isRealtime, driveIsRealtime }) => {
+    fetchTransportOptions().then(({ options, isRealtime }) => {
       setOptions(options);
       setIsRealtime(isRealtime);
-      setDriveIsRealtime(driveIsRealtime ?? false);
       setLastUpdated(new Date());
     });
   }
@@ -64,7 +49,7 @@ export default function TransportCard() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => { setExpanded(false); }, [sort, selectedWharves]);
+  useEffect(() => { setExpanded(false); }, [selectedWharves]);
 
   function toggleWharf(w: WharfName) {
     setSelectedWharves((prev) =>
@@ -82,11 +67,8 @@ export default function TransportCard() {
     return selectedWharves.length === 0 || selectedWharves.includes(o.wharf as WharfName);
   });
 
-  const sorted = [...filtered].sort((a, b) => {
-    if (sort === "departure") return timeToMins(a.departureTime) - timeToMins(b.departureTime);
-    if (sort === "arrival") return timeToMins(a.arrivalTime) - timeToMins(b.arrivalTime);
-    return a.totalMins - b.totalMins;
-  });
+  // Sort by departure time ascending
+  const sorted = [...filtered].sort((a, b) => timeToMins(a.departureTime) - timeToMins(b.departureTime));
 
   const INITIAL_SHOW = 3;
   const visible = expanded ? sorted : sorted.slice(0, INITIAL_SHOW);
@@ -104,8 +86,8 @@ export default function TransportCard() {
           <div className="flex items-center gap-2.5">
             <span className="text-xl">⛴️</span>
             <div>
-              <p className="text-xs font-bold text-white uppercase tracking-wide">Commute</p>
-              <p className="text-xs text-slate-300">Mosman → Circular Quay → 1 Farrer Place</p>
+              <p className="text-xs font-bold text-white uppercase tracking-wide">Upcoming Ferries</p>
+              <p className="text-xs text-slate-300">Mosman → Circular Quay</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -139,24 +121,6 @@ export default function TransportCard() {
             </button>
           );
         })}
-      </div>
-
-      {/* Sort pills */}
-      <div className="flex gap-2 mb-4 flex-wrap items-center">
-        <span className="text-xs text-slate-400 self-center">Sort:</span>
-        {(["departure", "arrival", "total"] as SortKey[]).map((s) => (
-          <button
-            key={s}
-            onClick={() => setSort(s)}
-            className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-              sort === s
-                ? "bg-slate-800 text-white"
-                : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-            }`}
-          >
-            {SORT_LABELS[s]}
-          </button>
-        ))}
       </div>
 
       {/* Option cards */}

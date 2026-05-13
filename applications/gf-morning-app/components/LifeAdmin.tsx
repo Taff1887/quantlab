@@ -28,9 +28,9 @@ function isDueSoon(dueDate?: string) {
 }
 
 function formatDue(dueDate: string) {
-  return new Date(dueDate + "T00:00:00").toLocaleDateString("en-AU", {
-    day: "numeric",
-    month: "short",
+  const [y, m, d] = dueDate.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-AU", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
   });
 }
 

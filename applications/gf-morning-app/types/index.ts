@@ -73,12 +73,10 @@ export interface FerryDeparture {
 // Gym
 // =============================================================================
 export type WorkoutType =
-  | "Pilates"
   | "Legs"
   | "Upper Body"
   | "Run"
-  | "Stairmaster"
-  | "Other";
+  | "Stairmaster";
 
 export interface ExerciseSet {
   weight?: number; // kg, optional (e.g. pull ups have no weight)
@@ -95,11 +93,14 @@ export interface FreeExercise {
 }
 
 export interface GymDetails {
-  // Free-form exercise list (Legs, Upper Body, Other)
+  // Free-form exercise list (Legs, Upper Body)
   exercises?: FreeExercise[];
   // Stairmaster
   flights?: number;
   minutes?: number;
+  // Run
+  distance?: number; // km
+  runTime?: number;  // minutes
 }
 
 export interface GymSession {

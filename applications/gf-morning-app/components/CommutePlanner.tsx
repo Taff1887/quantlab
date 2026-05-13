@@ -3,12 +3,9 @@ import { useState } from "react";
 import type { WharfName } from "../types";
 import {
   filterTrips,
-  tripsArrivingBy,
   toMins,
   type ScheduleTrip,
 } from "../lib/scheduleService";
-
-type SortKey = "arrival" | "commute";
 
 const FERRY_WHARVES: { label: string; value: WharfName }[] = [
   { label: "Taronga Zoo", value: "Taronga Zoo" },
@@ -24,18 +21,24 @@ function tomorrowStr() {
   return d.toISOString().split("T")[0];
 }
 
-function TripRow({ trip, dim }: { trip: ScheduleTrip; dim?: boolean }) {
+/** Format YYYY-MM-DD → "Friday 20 March 2026" */
+function formatDateLong(isoDate: string): string {
+  // Parse as local date to avoid UTC offset shifting the day
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.toLocaleDateString("en-AU", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
+  });
+}
+
+function TripRow({ trip }: { trip: ScheduleTrip }) {
   return (
-    <div className={`rounded-2xl border overflow-hidden transition-all ${
-      dim ? "border-slate-100 bg-white opacity-40" : "border-slate-100 bg-slate-50/40"
-    }`}>
-      <div className="flex items-center justify-between px-4 pt-3 pb-2">
-        <div className="flex items-center gap-2.5">
-          <span className="text-xl">⛴️</span>
-          <div>
-            <p className="text-sm font-bold text-slate-800">{trip.stopName}</p>
-            <p className="text-xs text-slate-400">{trip.routeName}</p>
-          </div>
+    <div className="rounded-2xl border border-slate-100 bg-slate-50/40 overflow-hidden">
+      <div className="flex items-center gap-2.5 px-4 pt-3 pb-2">
+        <span className="text-xl">⛴️</span>
+        <div>
+          <p className="text-sm font-bold text-slate-800">{trip.stopName}</p>
+          <p className="text-xs text-slate-400">{trip.routeName}</p>
         </div>
       </div>
 
@@ -45,7 +48,7 @@ function TripRow({ trip, dim }: { trip: ScheduleTrip; dim?: boolean }) {
         {[
           { label: "Departs", value: trip.departureTime },
           { label: "→ Circular Quay", value: trip.destinationArrival },
-          { label: "Total", value: `${trip.totalMins} min` },
+          { label: "Crossing", value: `${trip.totalMins} min` },
         ].map(({ label, value }) => (
           <div key={label}>
             <p className="text-xs text-slate-400">{label}</p>
@@ -57,19 +60,13 @@ function TripRow({ trip, dim }: { trip: ScheduleTrip; dim?: boolean }) {
   );
 }
 
-interface Results {
-  main: ScheduleTrip[];
-  justLate: ScheduleTrip[];
-}
-
 export default function CommutePlanner() {
   const [arrivalTime, setArrivalTime] = useState("09:00");
   const [date, setDate] = useState(tomorrowStr());
   const [selectedWharves, setSelectedWharves] = useState<WharfName[]>([
     "Taronga Zoo", "South Mosman", "Mosman Bay", "Cremorne Point", "Old Cremorne",
   ]);
-  const [sort, setSort] = useState<SortKey>("arrival");
-  const [results, setResults] = useState<Results | null>(null);
+  const [results, setResults] = useState<ScheduleTrip[] | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [isLive, setIsLive] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -108,19 +105,13 @@ export default function CommutePlanner() {
       ? ferryTrips
       : ferryTrips.filter((t) => selectedWharves.some((w) => t.stopName.includes(w)));
 
+    // Include ferries arriving at CQ up to 5 mins after desired time
     const byMins = toMins(arrivalTime);
+    const main = wharfFiltered
+      .filter((t) => toMins(t.destinationArrival) <= byMins + 5)
+      .sort((a, b) => toMins(b.destinationArrival) - toMins(a.destinationArrival)); // latest arrival first
 
-    const onTime = tripsArrivingBy(wharfFiltered, arrivalTime);
-
-    const justLate = wharfFiltered
-      .filter((t) => { const a = toMins(t.officeArrival); return a > byMins && a <= byMins + 5; })
-      .sort((a, b) => toMins(a.officeArrival) - toMins(b.officeArrival));
-
-    const sortFn = sort === "arrival"
-      ? (a: ScheduleTrip, b: ScheduleTrip) => toMins(b.officeArrival) - toMins(a.officeArrival)
-      : (a: ScheduleTrip, b: ScheduleTrip) => a.totalMins - b.totalMins;
-
-    setResults({ main: onTime.sort(sortFn), justLate });
+    setResults(main);
   }
 
   const dateLabel = (() => {
@@ -132,8 +123,8 @@ export default function CommutePlanner() {
   })();
 
   const INITIAL_SHOW = 3;
-  const visibleMain = results ? (expanded ? results.main : results.main.slice(0, INITIAL_SHOW)) : [];
-  const hasMore = results ? results.main.length > INITIAL_SHOW : false;
+  const visible = results ? (expanded ? results : results.slice(0, INITIAL_SHOW)) : [];
+  const hasMore = results ? results.length > INITIAL_SHOW : false;
 
   return (
     <div className="card">
@@ -143,8 +134,8 @@ export default function CommutePlanner() {
           <div className="flex items-center gap-2.5">
             <span className="text-xl">🗓️</span>
             <div>
-              <p className="text-xs font-bold text-white uppercase tracking-wide">Commute Planner</p>
-              <p className="text-xs text-slate-300">Mosman → Circular Quay → 1 Farrer Place</p>
+              <p className="text-xs font-bold text-white uppercase tracking-wide">Ferry Schedule</p>
+              <p className="text-xs text-slate-300">Mosman → Circular Quay</p>
             </div>
           </div>
           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
@@ -180,7 +171,7 @@ export default function CommutePlanner() {
       </div>
 
       {/* Wharf filter chips */}
-      <div className="flex flex-wrap gap-2 mb-3">
+      <div className="flex flex-wrap gap-2 mb-4">
         {FERRY_WHARVES.map((w) => {
           const active = selectedWharves.includes(w.value);
           return (
@@ -199,27 +190,6 @@ export default function CommutePlanner() {
         })}
       </div>
 
-      {/* Sort pills */}
-      <div className="flex gap-2 mb-3 items-center flex-wrap">
-        <span className="text-xs text-slate-400">Sort:</span>
-        {([
-          { key: "arrival", label: "Arrival" },
-          { key: "commute", label: "Commute time" },
-        ] as { key: SortKey; label: string }[]).map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => { setSort(key); setResults(null); }}
-            className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-              sort === key
-                ? "bg-slate-800 text-white"
-                : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
       <button onClick={handlePlan} disabled={loading} className="btn-primary w-full mb-4">
         {loading ? "Loading…" : `Show options for ${dateLabel}`}
       </button>
@@ -227,25 +197,17 @@ export default function CommutePlanner() {
       {/* Results */}
       {results !== null && (
         <div className="space-y-3">
-          {results.main.length === 0 && results.justLate.length === 0 ? (
+          {results.length === 0 ? (
             <p className="text-center text-slate-400 text-sm py-6">
-              No ferry options arrive within 60 min of {arrivalTime}. Try a later time.
+              No ferries arrive by {arrivalTime} for the selected wharves.
             </p>
           ) : (
             <>
-              {results.justLate.length > 0 && (
-                <div className="space-y-3">
-                  {results.justLate.map((t) => <TripRow key={t.id} trip={t} dim={false} />)}
-                </div>
-              )}
+              <p className="text-xs text-slate-400 font-medium text-center">
+                {results.length} option{results.length !== 1 ? "s" : ""} · {formatDateLong(date)}
+              </p>
 
-              {results.main.length > 0 && (
-                <p className="text-xs text-slate-400 font-medium text-center">
-                  {results.main.length} option{results.main.length !== 1 ? "s" : ""}
-                </p>
-              )}
-
-              {visibleMain.map((t) => <TripRow key={t.id} trip={t} />)}
+              {visible.map((t) => <TripRow key={t.id} trip={t} />)}
 
               {hasMore && (
                 <button
@@ -254,10 +216,9 @@ export default function CommutePlanner() {
                 >
                   {expanded
                     ? "▲ Show less"
-                    : `▼ Show ${results.main.length - INITIAL_SHOW} more option${results.main.length - INITIAL_SHOW !== 1 ? "s" : ""}`}
+                    : `▼ Show ${results.length - INITIAL_SHOW} more option${results.length - INITIAL_SHOW !== 1 ? "s" : ""}`}
                 </button>
               )}
-
             </>
           )}
 

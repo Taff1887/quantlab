@@ -18,7 +18,7 @@ function todayStr() { return new Date().toISOString().split("T")[0]; }
 function formatDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString("en-AU", {
-    day: "numeric", month: "long", year: "numeric",
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
   });
 }
 

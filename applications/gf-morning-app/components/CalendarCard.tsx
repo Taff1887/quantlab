@@ -288,7 +288,7 @@ export default function CalendarCard() {
                 </span>
               )}
               <p className="text-xs text-slate-400 mt-0.5">
-                {dateFromYMD(nextEvent.startDate).toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" })}
+                {dateFromYMD(nextEvent.startDate).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
               </p>
             </div>
           </div>

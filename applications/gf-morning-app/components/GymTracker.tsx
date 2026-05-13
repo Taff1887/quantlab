@@ -6,14 +6,14 @@ import type { GymSession, WorkoutType, GymDetails, FreeExercise } from "../types
 
 const LS_KEY = "gym_sessions_local";
 
-const WORKOUT_TYPES: WorkoutType[] = ["Pilates", "Legs", "Upper Body", "Run", "Stairmaster", "Other"];
+const WORKOUT_TYPES: WorkoutType[] = ["Legs", "Upper Body", "Run", "Stairmaster"];
 
 const WORKOUT_EMOJI: Record<WorkoutType, string> = {
-  Pilates: "🧘‍♀️", Legs: "🦵", "Upper Body": "💪", Run: "🏃‍♀️", Stairmaster: "🪜", Other: "⭐",
+  Legs: "🦵", "Upper Body": "💪", Run: "🏃‍♀️", Stairmaster: "🪜",
 };
 
-// Workout types that get the exercise list
-const EXERCISE_TYPES: WorkoutType[] = ["Legs", "Upper Body", "Other"];
+// Workout types that get the free-form exercise list
+const EXERCISE_TYPES: WorkoutType[] = ["Legs", "Upper Body"];
 function showsExercises(type: WorkoutType) { return EXERCISE_TYPES.includes(type); }
 
 type TimePeriod = "all" | "2w" | "1m" | "3m";
@@ -27,6 +27,14 @@ const TIME_PERIOD_OPTIONS: { label: string; value: TimePeriod }[] = [
 
 function todayStr() { return new Date().toISOString().split("T")[0]; }
 
+/** Format YYYY-MM-DD → "Friday 20 March 2026" */
+function formatDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-AU", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
+  });
+}
+
 function cutoffDate(period: TimePeriod): string | null {
   if (period === "all") return null;
   const d = new Date();
@@ -37,11 +45,7 @@ function cutoffDate(period: TimePeriod): string | null {
 }
 
 function defaultExercises(): FreeExercise[] {
-  return [
-    { name: "", weight: 0, reps: 0, sets: 0 },
-    { name: "", weight: 0, reps: 0, sets: 0 },
-    { name: "", weight: 0, reps: 0, sets: 0 },
-  ];
+  return [{ name: "", weight: 0, reps: 0, sets: 0 }];
 }
 
 // ─── localStorage helpers ─────────────────────────────────────────────────────
@@ -70,6 +74,15 @@ function DetailSummary({ type, details }: { type: WorkoutType; details?: GymDeta
     ].filter(Boolean);
     if (!parts.length) return null;
     return <p className="text-xs text-slate-400 mt-0.5">{parts.join(" in ")}</p>;
+  }
+
+  if (type === "Run") {
+    const parts = [
+      details.distance ? `${details.distance}km` : null,
+      details.runTime ? `${details.runTime} min` : null,
+    ].filter(Boolean);
+    if (!parts.length) return null;
+    return <p className="text-xs text-slate-400 mt-0.5">{parts.join(" · ")}</p>;
   }
 
   const exercises = details.exercises?.filter((e) => !e.na && e.name?.trim());
@@ -106,11 +119,13 @@ export default function GymTracker() {
 
   // Form state
   const [formDate, setFormDate] = useState(todayStr());
-  const [formType, setFormType] = useState<WorkoutType>("Pilates");
+  const [formType, setFormType] = useState<WorkoutType>("Legs");
   const [formNotes, setFormNotes] = useState("");
   const [exerciseList, setExerciseList] = useState<FreeExercise[]>(defaultExercises());
   const [formFlights, setFormFlights] = useState(0);
   const [formMinutes, setFormMinutes] = useState(0);
+  const [formDistance, setFormDistance] = useState(0);
+  const [formRunTime, setFormRunTime] = useState(0);
 
   async function fetchSessions() {
     setLoading(true);
@@ -160,11 +175,13 @@ export default function GymTracker() {
   function openAddForm() {
     setEditId(null);
     setFormDate(todayStr());
-    setFormType("Pilates");
+    setFormType("Legs");
     setFormNotes("");
     setExerciseList(defaultExercises());
     setFormFlights(0);
     setFormMinutes(0);
+    setFormDistance(0);
+    setFormRunTime(0);
     setShowForm(true);
   }
 
@@ -177,16 +194,28 @@ export default function GymTracker() {
     if (session.type === "Stairmaster") {
       setFormFlights(session.details?.flights ?? 0);
       setFormMinutes(session.details?.minutes ?? 0);
+      setFormDistance(0);
+      setFormRunTime(0);
+      setExerciseList(defaultExercises());
+    } else if (session.type === "Run") {
+      setFormDistance(session.details?.distance ?? 0);
+      setFormRunTime(session.details?.runTime ?? 0);
+      setFormFlights(0);
+      setFormMinutes(0);
       setExerciseList(defaultExercises());
     } else if (showsExercises(session.type)) {
       const exs = session.details?.exercises;
       setExerciseList(exs?.length ? exs : defaultExercises());
       setFormFlights(0);
       setFormMinutes(0);
+      setFormDistance(0);
+      setFormRunTime(0);
     } else {
       setExerciseList(defaultExercises());
       setFormFlights(0);
       setFormMinutes(0);
+      setFormDistance(0);
+      setFormRunTime(0);
     }
     setShowForm(true);
   }
@@ -198,6 +227,8 @@ export default function GymTracker() {
     setExerciseList(defaultExercises());
     setFormFlights(0);
     setFormMinutes(0);
+    setFormDistance(0);
+    setFormRunTime(0);
   }
 
   // ── Submit ────────────────────────────────────────────────────────────────
@@ -208,6 +239,8 @@ export default function GymTracker() {
     let details: GymDetails = {};
     if (formType === "Stairmaster") {
       details = { flights: formFlights || undefined, minutes: formMinutes || undefined };
+    } else if (formType === "Run") {
+      details = { distance: formDistance || undefined, runTime: formRunTime || undefined };
     } else if (showsExercises(formType)) {
       const filled = exerciseList.filter((ex) => ex.name.trim() || ex.na);
       if (filled.length) details = { exercises: filled };
@@ -422,6 +455,27 @@ export default function GymTracker() {
             </div>
           )}
 
+          {/* Run */}
+          {formType === "Run" && (
+            <div className="border-t border-slate-100 pt-3">
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Session details</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="label">Distance (km)</label>
+                  <input type="number" min={0} step={0.1} value={formDistance || ""}
+                    onChange={(e) => setFormDistance(Number(e.target.value))}
+                    className="input text-sm" placeholder="0" />
+                </div>
+                <div>
+                  <label className="label">Time (minutes)</label>
+                  <input type="number" min={0} value={formRunTime || ""}
+                    onChange={(e) => setFormRunTime(Number(e.target.value))}
+                    className="input text-sm" placeholder="0" />
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-2">
             <button type="submit" className="btn-primary flex-1">
               {editId ? "Save Changes" : "Log Session"}
@@ -444,7 +498,7 @@ export default function GymTracker() {
                 <span className="text-3xl flex-shrink-0">{WORKOUT_EMOJI[latest.type]}</span>
                 <div className="min-w-0">
                   <p className="font-semibold text-slate-800">{latest.type}</p>
-                  <p className="text-xs text-slate-500">{latest.date}</p>
+                  <p className="text-xs text-slate-500">{formatDate(latest.date)}</p>
                   <DetailSummary type={latest.type} details={latest.details} />
                 </div>
               </div>
@@ -495,7 +549,7 @@ export default function GymTracker() {
                     <span className="text-lg flex-shrink-0 mt-0.5">{WORKOUT_EMOJI[s.type]}</span>
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-slate-700">{s.type}</p>
-                      <p className="text-xs text-slate-400">{s.date}</p>
+                      <p className="text-xs text-slate-400">{formatDate(s.date)}</p>
                       <DetailSummary type={s.type} details={s.details} />
                       {s.notes && <p className="text-xs text-slate-400 italic mt-0.5">&ldquo;{s.notes}&rdquo;</p>}
                     </div>

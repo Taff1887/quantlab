@@ -31,7 +31,7 @@ const FERRY_WHARVES = [
     walkDistanceM:  1200,
     driveMins:      6,
     driveDistanceM: 900,
-    crossingMins:   25,
+    crossingMins:   16,
   },
   {
     searchName:     "Mosman Bay Ferry Wharf",
@@ -49,7 +49,7 @@ const FERRY_WHARVES = [
     walkDistanceM:  1700,
     driveMins:      8,
     driveDistanceM: 1400,
-    crossingMins:   18,
+    crossingMins:   10,
   },
   {
     searchName:     "Old Cremorne Wharf",
@@ -266,7 +266,7 @@ async function fetchWharf(
     const departureTime      = isoToHHMM(depIso);
     const destinationArrival = addMins(departureTime, wharf.crossingMins);
     const officeArrival      = addMins(destinationArrival, FERRY_OFFICE_WALK_MINS);
-    const totalMins          = wharf.walkMins + wharf.crossingMins + FERRY_OFFICE_WALK_MINS;
+    const totalMins          = wharf.crossingMins;
     const routeNum           = (ev.transportation?.number ?? "").trim();
     const routeName          = routeNum ? `${routeNum} to Circular Quay` : "Ferry to Circular Quay";
 

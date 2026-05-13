@@ -107,7 +107,7 @@ const ROUTES: RouteConfig[] = [
     stopName: "South Mosman Ferry Wharf",
     walkMins: buffer(16), walkDistanceM: 1200,
     driveMins: buffer(5), driveDistanceM: 900,
-    transitMins: 25,
+    transitMins: 16,
     destinationStop: "Circular Quay",
     walkToOfficeMins: 8,
     intervalMins: 30,
@@ -135,7 +135,7 @@ const ROUTES: RouteConfig[] = [
     stopName: "Cremorne Point Ferry Wharf",
     walkMins: buffer(22), walkDistanceM: 1700,
     driveMins: buffer(7), driveDistanceM: 1400,
-    transitMins: 18,
+    transitMins: 10,
     destinationStop: "Circular Quay",
     walkToOfficeMins: 8,
     intervalMins: 60,
@@ -168,7 +168,7 @@ function tripsForRoute(r: RouteConfig): ScheduleTrip[] {
     const depStr = fromMins(depMins);
     const cqArr = addMin(depStr, r.transitMins);
     const officeArr = addMin(cqArr, r.walkToOfficeMins);
-    const total = r.walkMins + r.transitMins + r.walkToOfficeMins;
+    const total = r.transitMins;
 
     trips.push({
       id: `${r.id}-${i}`,
@@ -225,7 +225,7 @@ export function tripsLeavingAt(trips: ScheduleTrip[], fromTime: string): Schedul
 
 export function tripsArrivingBy(trips: ScheduleTrip[], byTime: string): ScheduleTrip[] {
   const by = toMins(byTime);
-  return trips.filter((t) => toMins(t.officeArrival) <= by)
+  return trips.filter((t) => toMins(t.destinationArrival) <= by)
     .sort((a, b) => toMins(b.departureTime) - toMins(a.departureTime)); // latest dep first
 }
 

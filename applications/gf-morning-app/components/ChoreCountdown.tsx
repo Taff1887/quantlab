@@ -423,17 +423,13 @@ export default function ChoreCountdown() {
                         <p className="text-xs text-slate-500">
                           Last done:{" "}
                           {new Date(chore.lastCompleted).toLocaleDateString("en-AU", {
-                            weekday: "short",
-                            day: "numeric",
-                            month: "short",
+                            day: "numeric", month: "long", year: "numeric",
                           })}
                           {nextDue && (
                             <>
                               {" · "}Next:{" "}
                               {nextDue.toLocaleDateString("en-AU", {
-                                weekday: "short",
-                                day: "numeric",
-                                month: "short",
+                                day: "numeric", month: "long", year: "numeric",
                               })}
                             </>
                           )}
