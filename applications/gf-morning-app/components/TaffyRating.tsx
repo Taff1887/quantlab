@@ -249,7 +249,7 @@ export default function TaffyRating() {
             </button>
           ))}
         </div>
-        {rating && <p className="text-xs text-slate-400 mt-1">{rating}/10 <span style={{ display: "inline-block", width: 16, height: 16, fontSize: 14, lineHeight: "16px", textAlign: "center", overflow: "hidden", verticalAlign: "middle" }}>{ratingEmoji(rating)}</span></p>}
+        {rating && <p className="text-xs text-slate-400 mt-1 inline-flex items-center gap-0.5">{rating}/10 <span style={{ fontSize: 13, lineHeight: 1 }}>{ratingEmoji(rating)}</span></p>}
       </div>
 
       {/* Notes */}
@@ -333,8 +333,9 @@ export default function TaffyRating() {
                     ) : (
                       <>
                         <div className="flex items-center gap-3">
-                          <span className={`text-xs font-bold px-2 py-1 rounded-lg border flex-shrink-0 w-[62px] text-center ${ratingColor(row.rating)}`}>
-                            {row.rating}/10 <span style={{ display: "inline-block", width: 14, height: 14, fontSize: 13, lineHeight: "14px", textAlign: "center", overflow: "hidden", verticalAlign: "middle" }}>{ratingEmoji(row.rating)}</span>
+                          <span className={`text-xs font-bold px-2 py-1 rounded-lg border flex-shrink-0 inline-flex items-center justify-center gap-0.5 w-[72px] ${ratingColor(row.rating)}`}>
+                            <span>{row.rating}/10</span>
+                            <span style={{ fontSize: 12, lineHeight: 1, flexShrink: 0 }}>{ratingEmoji(row.rating)}</span>
                           </span>
                           <p className="text-xs text-slate-500 flex-1">{formatDate(row.date)}</p>
                           <div className="flex items-center gap-2 flex-shrink-0">

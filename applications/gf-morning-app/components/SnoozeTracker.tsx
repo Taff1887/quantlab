@@ -89,7 +89,6 @@ export default function SnoozeTracker() {
   const [loading, setLoading]     = useState(true);
   const [saving, setSaving]       = useState(false);
   const [useLocal, setUseLocal]   = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
 
   // Today
   const [selected, setSelected]         = useState<number | null>(null);
@@ -99,6 +98,9 @@ export default function SnoozeTracker() {
   const [showYesterday, setShowYesterday]           = useState(false);
   const [selectedYesterday, setSelectedYesterday]   = useState<number | null>(null);
   const [savingYesterday, setSavingYesterday]       = useState(false);
+
+  // Bar chart editing
+  const [editingDay, setEditingDay] = useState<string | null>(null);
 
   async function fetchLogs() {
     setLoading(true);
@@ -204,7 +206,6 @@ export default function SnoozeTracker() {
   if (loading) return <div className="card animate-pulse h-32" />;
 
   const yesterdayLog  = logs.find(l => l.date === yesterday);
-  const historyLogs   = logs.filter(l => l.date !== today);
 
   return (
     <div className="card">
@@ -312,88 +313,88 @@ export default function SnoozeTracker() {
         </div>
       )}
 
-      {/* Weekday bar chart — always visible */}
-      <div className="mb-4">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-3">Last 2 weeks</p>
-          <div className="flex items-end gap-1.5" style={{ height: 72 }}>
-            {chartDays.map((day) => {
-              const isToday = day.ymd === today;
-              const hasData = day.count !== null;
-              const count   = day.count ?? 0;
-              const pct     = hasData ? Math.max(8, Math.round((count / maxCount) * 100)) : 0;
-              const barColor = !hasData
-                ? "bg-slate-100"
-                : count === 0
-                ? "bg-emerald-400"
-                : count <= 2
-                ? "bg-amber-400"
-                : "bg-orange-500";
+      {/* Weekday bar chart — click any bar to edit */}
+      <div className="mb-2">
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-3">Last 2 weeks <span className="normal-case font-normal text-slate-300">· tap to edit</span></p>
+        <div className="flex items-end gap-1.5" style={{ height: 72 }}>
+          {chartDays.map((day) => {
+            const isToday   = day.ymd === today;
+            const hasData   = day.count !== null;
+            const count     = day.count ?? 0;
+            const pct       = hasData ? Math.max(8, Math.round((count / maxCount) * 100)) : 0;
+            const isEditing = editingDay === day.ymd;
+            const barColor  = !hasData
+              ? "bg-slate-100"
+              : count === 0
+              ? "bg-emerald-400"
+              : count <= 2
+              ? "bg-amber-400"
+              : "bg-orange-500";
 
-              return (
-                <div key={day.ymd} className="flex flex-col items-center flex-1 gap-1">
-                  {/* count label */}
-                  <span className="text-[10px] font-bold text-slate-500" style={{ minHeight: 14 }}>
-                    {hasData && count > 0 ? count === 5 ? "5+" : count : hasData ? "" : ""}
-                  </span>
-                  {/* bar */}
-                  <div className="w-full flex items-end" style={{ height: 48 }}>
-                    <div
-                      className={`w-full rounded-t-md transition-all ${barColor} ${isToday ? "ring-2 ring-blue-400 ring-offset-1" : ""}`}
-                      style={{ height: hasData ? `${pct}%` : "4px" }}
-                    />
+            return (
+              <div key={day.ymd} className="flex flex-col items-center flex-1 gap-1 relative">
+                {/* Edit popover */}
+                {isEditing && (
+                  <div className="absolute bottom-[calc(100%+4px)] left-1/2 -translate-x-1/2 z-10 bg-white border border-slate-200 rounded-xl shadow-lg p-2 flex gap-1">
+                    {OPTIONS.map(n => (
+                      <button
+                        key={n}
+                        onClick={async () => {
+                          setEditingDay(null);
+                          await save(day.ymd, n);
+                          if (day.ymd === today) {
+                            setSelected(n);
+                            setSubmittedToday(true);
+                          }
+                        }}
+                        className={`w-7 h-7 rounded-lg text-xs font-bold border transition-all ${
+                          day.count === n
+                            ? n === 0 ? "bg-emerald-500 text-white border-emerald-500" : "bg-orange-500 text-white border-orange-500"
+                            : "bg-slate-50 text-slate-600 border-slate-200 hover:border-blue-400"
+                        }`}
+                      >
+                        {n === 5 ? "5+" : n}
+                      </button>
+                    ))}
                   </div>
-                  {/* day label */}
-                  <span className={`text-[10px] font-semibold ${isToday ? "text-blue-500" : "text-slate-400"}`}>
-                    {day.label}
-                  </span>
+                )}
+
+                {/* count label */}
+                <span className="text-[10px] font-bold text-slate-500" style={{ minHeight: 14 }}>
+                  {hasData && count > 0 ? (count === 5 ? "5+" : count) : ""}
+                </span>
+                {/* bar — clickable */}
+                <div
+                  className="w-full flex items-end cursor-pointer"
+                  style={{ height: 48 }}
+                  onClick={() => setEditingDay(isEditing ? null : day.ymd)}
+                >
+                  <div
+                    className={`w-full rounded-t-md transition-all ${barColor} ${isToday ? "ring-2 ring-blue-400 ring-offset-1" : ""} ${isEditing ? "opacity-70" : "hover:opacity-80"}`}
+                    style={{ height: hasData ? `${pct}%` : "4px" }}
+                  />
                 </div>
-              );
-            })}
-          </div>
-          <div className="flex gap-3 mt-2">
-            {[
-              { color: "bg-emerald-400", label: "0" },
-              { color: "bg-amber-400",   label: "1–2" },
-              { color: "bg-orange-500",  label: "3+" },
-            ].map(({ color, label }) => (
-              <div key={label} className="flex items-center gap-1">
-                <div className={`w-2 h-2 rounded-sm ${color}`} />
-                <span className="text-[10px] text-slate-400">{label}</span>
+                {/* day label */}
+                <span className={`text-[10px] font-semibold ${isToday ? "text-blue-500" : "text-slate-400"}`}>
+                  {day.label}
+                </span>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
-
-      {/* History */}
-      {historyLogs.length > 0 && (
-        <div>
-          <button
-            onClick={() => setShowHistory(v => !v)}
-            className="text-xs text-blue-600 font-semibold"
-          >
-            {showHistory
-              ? "▲ Hide history"
-              : `▼ ${historyLogs.length} previous day${historyLogs.length !== 1 ? "s" : ""}`}
-          </button>
-
-          {showHistory && (
-            <div className="mt-3 divide-y divide-slate-50">
-              {historyLogs.map(log => (
-                <div key={log.id} className="flex items-center justify-between py-2">
-                  <span className="text-xs text-slate-500">{formatDateShort(log.date)}</span>
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${
-                    log.count === 0
-                      ? "bg-emerald-100 text-emerald-700"
-                      : "bg-amber-100 text-amber-700"
-                  }`}>
-                    {log.count === 5 ? "5+" : log.count} {log.count === 1 ? "snooze" : "snoozes"}
-                  </span>
-                </div>
-              ))}
+        <div className="flex gap-3 mt-2">
+          {[
+            { color: "bg-emerald-400", label: "0" },
+            { color: "bg-amber-400",   label: "1–2" },
+            { color: "bg-orange-500",  label: "3+" },
+          ].map(({ color, label }) => (
+            <div key={label} className="flex items-center gap-1">
+              <div className={`w-2 h-2 rounded-sm ${color}`} />
+              <span className="text-[10px] text-slate-400">{label}</span>
             </div>
-          )}
+          ))}
         </div>
-      )}
+      </div>
     </div>
   );
 }
