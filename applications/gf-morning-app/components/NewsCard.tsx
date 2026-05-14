@@ -21,7 +21,7 @@ export default function NewsCard() {
   const [error, setError]     = useState(false);
 
   useEffect(() => {
-    fetch("/api/news")
+    fetch("/api/gittins")
       .then((r) => {
         if (!r.ok) throw new Error("fetch failed");
         return r.json();
