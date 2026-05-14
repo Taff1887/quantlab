@@ -1,7 +1,5 @@
-export const dynamic = "force-dynamic"; // never cache — fetch fresh every request
+export const dynamic = "force-dynamic";
 
-// Google News RSS — searches for Ross Gittins articles on SMH.
-// Google's RSS is publicly accessible from any server (no CORS / blocking issues).
 const GOOGLE_NEWS_URL =
   "https://news.google.com/rss/search?q=%22Ross+Gittins%22+site%3Asmh.com.au&hl=en-AU&gl=AU&ceid=AU:en";
 
@@ -41,7 +39,6 @@ function parseItems(xml: string): RssItem[] {
     const end = chunk.indexOf("</item>");
     const body = end >= 0 ? chunk.slice(0, end) : chunk;
 
-    // Prefer <link> text content; Google News also uses <link> not <atom:link>
     let link = "";
     const linkMatch = /<link>([^<]+)<\/link>/i.exec(body);
     if (linkMatch) link = linkMatch[1].trim();
@@ -58,30 +55,42 @@ function parseItems(xml: string): RssItem[] {
 }
 
 export async function GET() {
+  // Debug info returned alongside result so we can diagnose remotely
+  const debug: Record<string, unknown> = {};
+
   try {
     const res = await fetch(GOOGLE_NEWS_URL, {
       cache: "no-store",
       headers: { "User-Agent": "Mozilla/5.0 (compatible; RSS reader)" },
     });
 
-    if (!res.ok) return Response.json({ found: false });
+    debug.status = res.status;
+    debug.ok = res.ok;
+
+    if (!res.ok) {
+      return Response.json({ found: false, debug });
+    }
 
     const xml = await res.text();
-    const items = parseItems(xml);
+    debug.xmlLength = xml.length;
+    debug.xmlPreview = xml.slice(0, 200);
 
-    // Filter to items most likely authored by Gittins
-    // (search is already specific but "expert roundup" articles can sneak in)
+    const items = parseItems(xml);
+    debug.itemCount = items.length;
+    debug.firstTitle = items[0]?.title ?? null;
+
     const authored = items.filter(it =>
       it.title.toLowerCase().includes("gittins") ||
       it.description.toLowerCase().includes("ross gittins")
     );
+    debug.authoredCount = authored.length;
 
-    // Use filtered list if any match; otherwise trust the search ranking
     const candidates = authored.length > 0 ? authored : items;
 
-    if (candidates.length === 0) return Response.json({ found: false });
+    if (candidates.length === 0) {
+      return Response.json({ found: false, debug });
+    }
 
-    // Most recent first (Google usually returns them sorted, but be explicit)
     candidates.sort((a, b) => {
       const da = a.pubDate ? new Date(a.pubDate).getTime() : 0;
       const db = b.pubDate ? new Date(b.pubDate).getTime() : 0;
@@ -99,7 +108,8 @@ export async function GET() {
       description,
       pubDate: best.pubDate,
     });
-  } catch {
-    return Response.json({ found: false });
+  } catch (err) {
+    debug.error = String(err);
+    return Response.json({ found: false, debug });
   }
 }
