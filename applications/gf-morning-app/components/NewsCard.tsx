@@ -71,16 +71,11 @@ export default function NewsCard() {
       )}
 
       {data?.found && !loading && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <p className="font-semibold text-slate-800 leading-snug text-sm">
             {data.title}
           </p>
-          {data.description && (
-            <p className="text-xs text-slate-500 leading-relaxed italic">
-              {data.description}
-            </p>
-          )}
-          <div className="flex items-center justify-between pt-2">
+          <div className="flex items-center justify-between">
             <p className="text-xs text-slate-400">
               {data.pubDate ? formatPubDate(data.pubDate) : ""}
             </p>
