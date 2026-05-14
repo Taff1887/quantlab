@@ -40,8 +40,8 @@ class Company(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     sector_rel = relationship("Sector", back_populates="companies")
-    announcements = relationship("Announcement", back_populates="company_rel")
-    price_data = relationship("PriceData", back_populates="company_rel")
+    # No ORM relationship to Announcement/PriceData — ticker is a string, not a FK.
+    # Use explicit db.query() joins in routes instead.
 
 
 class Announcement(Base):
@@ -79,8 +79,6 @@ class Announcement(Base):
 
     # Prevent duplicate ingestion of the same announcement
     __table_args__ = (UniqueConstraint("ticker", "title", "announcement_datetime", name="uq_announcement"),)
-
-    company_rel = relationship("Company", foreign_keys=[ticker], primaryjoin="Announcement.ticker == Company.ticker")
 
 
 class AnnouncementSummary(Base):
@@ -123,8 +121,6 @@ class PriceData(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint("ticker", "date", name="uq_price_date"),)
-
-    company_rel = relationship("Company", foreign_keys=[ticker], primaryjoin="PriceData.ticker == Company.ticker")
 
 
 class DailyReport(Base):

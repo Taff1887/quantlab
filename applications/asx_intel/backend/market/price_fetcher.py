@@ -8,7 +8,7 @@ Modular design: swap out _fetch_ohlcv() to use a paid provider
 """
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
@@ -165,6 +165,78 @@ def save_price_data(price: dict[str, Any], db: Session) -> None:
         db.commit()
     except IntegrityError:
         db.rollback()
+
+
+def fetch_intraday_bars(ticker: str, interval: str = "1m") -> list[dict[str, Any]]:
+    """
+    Fetch today's intraday OHLCV bars for a ticker.
+
+    interval options: "1m", "2m", "5m", "15m"
+    Returns a list of {time, open, high, low, close, volume} dicts.
+    Returns [] if market is closed or data unavailable.
+    """
+    try:
+        asx_ticker = _to_asx_ticker(ticker)
+        df = yf.download(
+            asx_ticker,
+            period="1d",
+            interval=interval,
+            progress=False,
+            auto_adjust=True,
+        )
+        if df.empty:
+            return []
+
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
+        bars = []
+        for ts, row in df.iterrows():
+            bars.append({
+                "time": ts.isoformat(),
+                "open": round(float(row["Open"]), 4) if pd.notna(row["Open"]) else None,
+                "high": round(float(row["High"]), 4) if pd.notna(row["High"]) else None,
+                "low": round(float(row["Low"]), 4) if pd.notna(row["Low"]) else None,
+                "close": round(float(row["Close"]), 4) if pd.notna(row["Close"]) else None,
+                "volume": int(row["Volume"]) if pd.notna(row["Volume"]) else None,
+            })
+        return bars
+
+    except Exception as exc:
+        logger.error("Intraday fetch error for %s: %s", ticker, exc)
+        return []
+
+
+def get_live_quote(ticker: str) -> dict[str, Any] | None:
+    """
+    Get the latest price, daily move %, and volume for a ticker.
+    Uses intraday bars — last bar is the most recent trade.
+    """
+    bars = fetch_intraday_bars(ticker, interval="1m")
+    if not bars:
+        return None
+
+    latest = bars[-1]
+    first_bar = bars[0]
+
+    prev_close = first_bar.get("open")  # approximate: open of first bar ≈ prev close
+    close = latest.get("close")
+
+    daily_move = None
+    if close and prev_close and prev_close != 0:
+        daily_move = round((close - prev_close) / prev_close * 100, 2)
+
+    return {
+        "ticker": ticker.upper(),
+        "price": close,
+        "daily_move_pct": daily_move,
+        "open": first_bar.get("open"),
+        "high": max(b["high"] for b in bars if b.get("high")),
+        "low": min(b["low"] for b in bars if b.get("low")),
+        "volume": sum(b["volume"] for b in bars if b.get("volume")),
+        "bars": len(bars),
+        "last_updated": bars[-1]["time"],
+    }
 
 
 def fetch_and_save_prices(tickers: list[str], target_date: date, db: Session) -> dict[str, Any]:

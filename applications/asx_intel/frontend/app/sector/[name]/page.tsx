@@ -1,13 +1,13 @@
 import { format } from "date-fns";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, Announcement } from "@/lib/api";
 import ImportanceBadge from "@/components/ImportanceBadge";
 import PriceMove from "@/components/PriceMove";
 import AnnouncementTypeBadge from "@/components/AnnouncementTypeBadge";
 
 export default async function SectorPage({ params }: { params: { name: string } }) {
   const name = decodeURIComponent(params.name);
-  let anns;
+  let anns: Announcement[] = [];
   try {
     anns = await api.sectorAnnouncements(name);
   } catch {
