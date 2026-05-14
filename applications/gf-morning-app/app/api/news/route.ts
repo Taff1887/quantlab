@@ -3,6 +3,15 @@ export const dynamic = "force-dynamic";
 const GOOGLE_NEWS_URL =
   "https://news.google.com/rss/search?q=%22Ross+Gittins%22+site%3Asmh.com.au&hl=en-AU&gl=AU&ceid=AU:en";
 
+const NO_CACHE_HEADERS = {
+  "Content-Type": "application/json",
+  "Cache-Control": "no-store, no-cache, must-revalidate",
+};
+
+function json(data: unknown) {
+  return new Response(JSON.stringify(data), { headers: NO_CACHE_HEADERS });
+}
+
 function stripHtml(html: string): string {
   return html
     .replace(/<!\[CDATA\[|\]\]>/g, "")
@@ -55,9 +64,7 @@ function parseItems(xml: string): RssItem[] {
 }
 
 export async function GET() {
-  // Debug info returned alongside result so we can diagnose remotely
   const debug: Record<string, unknown> = {};
-
   try {
     const res = await fetch(GOOGLE_NEWS_URL, {
       cache: "no-store",
@@ -65,15 +72,11 @@ export async function GET() {
     });
 
     debug.status = res.status;
-    debug.ok = res.ok;
-
-    if (!res.ok) {
-      return Response.json({ found: false, debug });
-    }
+    if (!res.ok) return json({ found: false, debug });
 
     const xml = await res.text();
     debug.xmlLength = xml.length;
-    debug.xmlPreview = xml.slice(0, 200);
+    debug.preview = xml.slice(0, 300);
 
     const items = parseItems(xml);
     debug.itemCount = items.length;
@@ -83,33 +86,29 @@ export async function GET() {
       it.title.toLowerCase().includes("gittins") ||
       it.description.toLowerCase().includes("ross gittins")
     );
-    debug.authoredCount = authored.length;
-
     const candidates = authored.length > 0 ? authored : items;
 
-    if (candidates.length === 0) {
-      return Response.json({ found: false, debug });
-    }
+    if (candidates.length === 0) return json({ found: false, debug });
 
-    candidates.sort((a, b) => {
-      const da = a.pubDate ? new Date(a.pubDate).getTime() : 0;
-      const db = b.pubDate ? new Date(b.pubDate).getTime() : 0;
-      return db - da;
-    });
+    candidates.sort((a, b) =>
+      (b.pubDate ? new Date(b.pubDate).getTime() : 0) -
+      (a.pubDate ? new Date(a.pubDate).getTime() : 0)
+    );
 
     const best = candidates[0];
-    const clean = best.description;
-    const description = clean.length > 300 ? clean.slice(0, 297).trimEnd() + "…" : clean;
+    const desc = best.description.length > 300
+      ? best.description.slice(0, 297).trimEnd() + "…"
+      : best.description;
 
-    return Response.json({
+    return json({
       found: true,
       title: best.title,
       link: best.link || "https://www.smh.com.au/by/ross-gittins",
-      description,
+      description: desc,
       pubDate: best.pubDate,
     });
   } catch (err) {
     debug.error = String(err);
-    return Response.json({ found: false, debug });
+    return json({ found: false, debug });
   }
 }
