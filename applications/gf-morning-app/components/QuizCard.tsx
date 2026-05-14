@@ -223,39 +223,40 @@ export default function QuizCard() {
         if (!error && sd) {
           state = {
             streak:       (sd.streak as number) ?? 0,
+            // record_streak / migrated / migrated_v2 may not exist yet — handled gracefully
             recordStreak: (sd.record_streak as number | null) ?? 0,
             coffee_won:   (sd.coffee_won as boolean) ?? false,
-            migrated:     (sd.migrated as boolean | null) ?? false,
-            migrated_v2:  (sd.migrated_v2 as boolean | null) ?? false,
+            migrated:     (sd.migrated as boolean | null) ?? true, // assume migrated if streak > 0
+            migrated_v2:  (sd.migrated_v2 as boolean | null) ?? (((sd.streak as number) ?? 0) >= 2),
           };
           lsSaveState(state);
         }
       } catch { /* fall through */ }
     }
 
-    // localStorage fallback
+    // localStorage fallback (only when Supabase returned nothing)
     if (state.streak === 0 && !state.coffee_won) {
       const ls = lsLoadState();
       if (ls) state = ls;
     }
 
-    // One-time +1 streak correction (v1)
-    if (!state.migrated) {
-      state.streak = Math.max(0, (state.streak ?? 0) + 1);
-      state.recordStreak = Math.max(state.recordStreak ?? 0, state.streak);
+    // One-time +1 correction (v1): only for brand-new users with streak === 0
+    // Guards against looping when `migrated` column doesn't exist in DB
+    if (!state.migrated && state.streak === 0) {
+      state.streak = 1;
+      state.recordStreak = Math.max(state.recordStreak ?? 0, 1);
       state.migrated = true;
       lsSaveState(state);
       if (SUPABASE_ENABLED) {
+        // Core columns only — extended cols may not exist yet
         supabase.from("quiz_state").upsert({
-          id: "singleton", streak: state.streak, record_streak: state.recordStreak,
-          coffee_won: state.coffee_won, migrated: true,
-          updated_at: new Date().toISOString(),
+          id: "singleton", streak: state.streak,
+          coffee_won: state.coffee_won, updated_at: new Date().toISOString(),
         }).then(undefined, () => {});
       }
     }
 
-    // Ensure streak is at least 2 — applied whenever the loaded streak is below target.
-    // Uses a Supabase-side flag (migrated_v2) so it survives Supabase reconnects.
+    // Ensure streak is at least 2 — only triggers if DB streak < 2
     if (!state.migrated_v2 && state.streak < 2) {
       state.streak = 2;
       state.recordStreak = Math.max(state.recordStreak ?? 0, 2);
@@ -263,9 +264,8 @@ export default function QuizCard() {
       lsSaveState(state);
       if (SUPABASE_ENABLED) {
         supabase.from("quiz_state").upsert({
-          id: "singleton", streak: state.streak, record_streak: state.recordStreak,
-          coffee_won: state.coffee_won, migrated: true, migrated_v2: true,
-          updated_at: new Date().toISOString(),
+          id: "singleton", streak: state.streak,
+          coffee_won: state.coffee_won, updated_at: new Date().toISOString(),
         }).then(undefined, () => {});
       }
     }
@@ -333,11 +333,17 @@ export default function QuizCard() {
           created_at: new Date().toISOString(),
         }, { onConflict: "date" });
 
+        // Core columns — always exist
         await supabase.from("quiz_state").upsert({
-          id: "singleton", streak: newStreak, record_streak: newRecord,
-          coffee_won: coffeeWon, migrated: true,
-          updated_at: new Date().toISOString(),
+          id: "singleton", streak: newStreak,
+          coffee_won: coffeeWon, updated_at: new Date().toISOString(),
         });
+
+        // Extended columns — exist once ALTER TABLE SQL is run in Supabase
+        supabase.from("quiz_state").update({
+          record_streak: newRecord, migrated: true, migrated_v2: true,
+          updated_at: new Date().toISOString(),
+        }).eq("id", "singleton").then(undefined, () => {});
       } catch { /* silent — localStorage already saved */ }
     }
   }
