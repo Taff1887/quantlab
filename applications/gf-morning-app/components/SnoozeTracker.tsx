@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
 import { fmtYMD } from "../lib/formatDate";
 
@@ -99,6 +99,19 @@ export default function SnoozeTracker() {
 
   // Bar chart editing
   const [editingDay, setEditingDay] = useState<string | null>(null);
+  const chartRef = useRef<HTMLDivElement>(null);
+
+  // Close popover when clicking outside the chart
+  useEffect(() => {
+    if (!editingDay) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (chartRef.current && !chartRef.current.contains(e.target as Node)) {
+        setEditingDay(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [editingDay]);
 
   async function fetchLogs() {
     setLoading(true);
@@ -314,7 +327,7 @@ export default function SnoozeTracker() {
       {/* Weekday bar chart — click any bar to edit */}
       <div className="mb-2">
         <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-3">Last 2 weeks <span className="normal-case font-normal text-slate-300">· tap to edit</span></p>
-        <div className="flex items-end gap-1.5" style={{ height: 72 }}>
+        <div ref={chartRef} className="flex items-end gap-1.5" style={{ height: 72 }}>
           {chartDays.map((day) => {
             const isToday   = day.ymd === today;
             const hasData   = day.count !== null;
