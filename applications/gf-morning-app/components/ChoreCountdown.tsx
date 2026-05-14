@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
 import type { Chore, ChoreStatus } from "../types";
+import { fmtDate } from "../lib/formatDate";
 
 const LS_KEY = "chores_local";
 
@@ -422,15 +423,11 @@ export default function ChoreCountdown() {
                       <>
                         <p className="text-xs text-slate-500">
                           Last done:{" "}
-                          {new Date(chore.lastCompleted).toLocaleDateString("en-AU", {
-                            weekday: "long", day: "numeric", month: "long", year: "numeric",
-                          })}
+                          {fmtDate(new Date(chore.lastCompleted))}
                           {nextDue && (
                             <>
                               {" · "}Next:{" "}
-                              {nextDue.toLocaleDateString("en-AU", {
-                                weekday: "long", day: "numeric", month: "long", year: "numeric",
-                              })}
+                              {fmtDate(nextDue)}
                             </>
                           )}
                         </p>

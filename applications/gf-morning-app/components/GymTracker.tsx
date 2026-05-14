@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
+import { fmtYMD } from "../lib/formatDate";
 import type { GymSession, WorkoutType, GymDetails, FreeExercise } from "../types";
 
 const LS_KEY = "gym_sessions_local";
@@ -29,10 +30,7 @@ function todayStr() { return new Date().toISOString().split("T")[0]; }
 
 /** Format YYYY-MM-DD → "Friday 20 March 2026" */
 function formatDate(iso: string): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("en-AU", {
-    weekday: "long", day: "numeric", month: "long", year: "numeric",
-  });
+  return fmtYMD(iso);
 }
 
 function cutoffDate(period: TimePeriod): string | null {

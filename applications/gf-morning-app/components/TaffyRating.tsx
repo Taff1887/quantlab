@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
+import { fmtYMD } from "../lib/formatDate";
 
 const LS_KEY = "taffy_ratings_local";
 
@@ -16,10 +17,7 @@ interface RatingRow {
 function todayStr() { return new Date().toISOString().split("T")[0]; }
 
 function formatDate(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("en-AU", {
-    weekday: "long", day: "numeric", month: "long", year: "numeric",
-  });
+  return fmtYMD(dateStr);
 }
 
 function mapRow(row: Record<string, unknown>): RatingRow {

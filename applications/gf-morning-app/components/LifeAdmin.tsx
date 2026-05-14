@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
+import { fmtYMD } from "../lib/formatDate";
 import type { Task } from "../types";
 
 const LS_KEY = "tasks_local";
@@ -28,10 +29,7 @@ function isDueSoon(dueDate?: string) {
 }
 
 function formatDue(dueDate: string) {
-  const [y, m, d] = dueDate.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("en-AU", {
-    weekday: "long", day: "numeric", month: "long", year: "numeric",
-  });
+  return fmtYMD(dueDate);
 }
 
 // Map DB row → Task

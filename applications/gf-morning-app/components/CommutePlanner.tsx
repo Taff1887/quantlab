@@ -6,6 +6,7 @@ import {
   toMins,
   type ScheduleTrip,
 } from "../lib/scheduleService";
+import { fmtYMD } from "../lib/formatDate";
 
 const FERRY_WHARVES: { label: string; value: WharfName }[] = [
   { label: "Taronga Zoo", value: "Taronga Zoo" },
@@ -23,12 +24,7 @@ function tomorrowStr() {
 
 /** Format YYYY-MM-DD → "Friday 20 March 2026" */
 function formatDateLong(isoDate: string): string {
-  // Parse as local date to avoid UTC offset shifting the day
-  const [y, m, d] = isoDate.split("-").map(Number);
-  const date = new Date(y, m - 1, d);
-  return date.toLocaleDateString("en-AU", {
-    weekday: "long", day: "numeric", month: "long", year: "numeric",
-  });
+  return fmtYMD(isoDate);
 }
 
 function TripRow({ trip }: { trip: ScheduleTrip }) {
@@ -119,7 +115,7 @@ export default function CommutePlanner() {
     const tomorrow = tomorrowStr();
     if (date === today) return "Today";
     if (date === tomorrow) return "Tomorrow";
-    return new Date(date).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    return fmtYMD(date);
   })();
 
   const INITIAL_SHOW = 3;

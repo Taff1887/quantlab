@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
+import { fmtDate, fmtYMDShort } from "../lib/formatDate";
 
 const LS_KEY = "calendar_events_local";
 
@@ -288,7 +289,7 @@ export default function CalendarCard() {
                 </span>
               )}
               <p className="text-xs text-slate-400 mt-0.5">
-                {dateFromYMD(nextEvent.startDate).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+                {fmtDate(dateFromYMD(nextEvent.startDate))}
               </p>
             </div>
           </div>
@@ -347,7 +348,7 @@ export default function CalendarCard() {
         <div className="mt-4 border-t border-slate-100 pt-4">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-bold text-slate-700">
-              {dateFromYMD(selectedDay).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+              {fmtDate(dateFromYMD(selectedDay))}
             </p>
             <button onClick={() => { setShowAdd(true); setAddStart(selectedDay); }} className="text-xs text-blue-600 hover:text-blue-700 font-semibold transition-colors">+ Add</button>
           </div>
@@ -382,9 +383,9 @@ export default function CalendarCard() {
                         <p className="text-sm font-medium text-slate-800 leading-snug">{ev.title}</p>
                         {ev.endDate && (
                           <p className="text-xs text-slate-400 mt-0.5">
-                            {dateFromYMD(ev.startDate).toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" })}
+                            {fmtYMDShort(ev.startDate)}
                             {" → "}
-                            {dateFromYMD(ev.endDate).toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" })}
+                            {fmtYMDShort(ev.endDate)}
                           </p>
                         )}
                       </div>

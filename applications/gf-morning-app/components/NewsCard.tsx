@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fmtISO } from "../lib/formatDate";
 
 interface GittinsArticle {
   found: boolean;
@@ -11,14 +12,7 @@ interface GittinsArticle {
 }
 
 function formatPubDate(dateStr: string): string {
-  try {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString("en-AU", {
-      weekday: "long", day: "numeric", month: "long", year: "numeric",
-    });
-  } catch {
-    return dateStr;
-  }
+  return fmtISO(dateStr);
 }
 
 export default function NewsCard() {

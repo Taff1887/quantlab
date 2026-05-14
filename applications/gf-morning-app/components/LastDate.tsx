@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
 import type { DateNight } from "../types";
+import { fmtYMD } from "../lib/formatDate";
 
 const LS_KEY = "date_nights_local";
 
@@ -16,12 +17,7 @@ function daysSince(dateStr: string): number {
 }
 
 function formatDate(dateStr: string): string {
-  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-AU", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  return fmtYMD(dateStr);
 }
 
 function rowToDateNight(row: Record<string, unknown>): DateNight {

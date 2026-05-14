@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase, SUPABASE_ENABLED } from "../lib/supabase";
+import { fmtYMD } from "../lib/formatDate";
 
 interface SnoozeLog {
   id: string;
@@ -19,10 +20,7 @@ function yesterdayStr() {
 }
 
 function formatDateShort(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("en-AU", {
-    weekday: "long", day: "numeric", month: "long", year: "numeric",
-  });
+  return fmtYMD(dateStr);
 }
 
 function mapRow(row: Record<string, unknown>): SnoozeLog {
