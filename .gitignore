@@ -57,7 +57,8 @@ data/external/
 # Secrets & credentials
 # =============================================================================
 .env
-.env.*
+.env.local
+.env.*.local
 *.pem
 *.key
 secrets/
@@ -93,3 +94,5 @@ logs/
 htmlcov/
 .coverage
 coverage.xml
+
+.vercel
