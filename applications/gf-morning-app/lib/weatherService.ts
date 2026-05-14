@@ -171,7 +171,8 @@ export function getClothingRec(morningTemp: number, eveningTemp: number): Clothi
 }
 
 export function getUmbrellaRec(morningRain: number, eveningRain: number): UmbrellaRec {
-  return morningRain > 40 || eveningRain > 40 ? "bring" : "not-needed";
+  // Only recommend umbrella at 60%+ — high-confidence rain, not just a passing chance
+  return morningRain >= 60 || eveningRain >= 60 ? "bring" : "not-needed";
 }
 
 export const CLOTHING_LABEL: Record<ClothingRec, string> = {

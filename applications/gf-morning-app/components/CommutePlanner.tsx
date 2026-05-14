@@ -119,7 +119,7 @@ export default function CommutePlanner() {
     const tomorrow = tomorrowStr();
     if (date === today) return "Today";
     if (date === tomorrow) return "Tomorrow";
-    return new Date(date).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "short" });
+    return new Date(date).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   })();
 
   const INITIAL_SHOW = 3;

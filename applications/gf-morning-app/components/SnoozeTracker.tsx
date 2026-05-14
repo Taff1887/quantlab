@@ -21,7 +21,7 @@ function yesterdayStr() {
 function formatDateShort(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString("en-AU", {
-    weekday: "short", day: "numeric", month: "short",
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
   });
 }
 
