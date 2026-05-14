@@ -237,12 +237,28 @@ export default function QuizCard() {
       if (ls) state = ls;
     }
 
-    // One-time +1 streak correction
+    // One-time +1 streak correction (v1)
     if (!state.migrated) {
       state.streak = Math.max(0, (state.streak ?? 0) + 1);
       state.recordStreak = Math.max(state.recordStreak ?? 0, state.streak);
       state.migrated = true;
       lsSaveState(state);
+      if (SUPABASE_ENABLED) {
+        supabase.from("quiz_state").upsert({
+          id: "singleton", streak: state.streak, record_streak: state.recordStreak,
+          coffee_won: state.coffee_won, migrated: true,
+          updated_at: new Date().toISOString(),
+        }).then(undefined, () => {});
+      }
+    }
+
+    // One-time +1 streak correction (v2 — brings streak to 2)
+    const STREAK_V2_KEY = "quiz_streak_v2";
+    if (typeof localStorage !== "undefined" && !localStorage.getItem(STREAK_V2_KEY)) {
+      state.streak = Math.max(0, (state.streak ?? 0) + 1);
+      state.recordStreak = Math.max(state.recordStreak ?? 0, state.streak);
+      lsSaveState(state);
+      try { localStorage.setItem(STREAK_V2_KEY, "1"); } catch {}
       if (SUPABASE_ENABLED) {
         supabase.from("quiz_state").upsert({
           id: "singleton", streak: state.streak, record_streak: state.recordStreak,

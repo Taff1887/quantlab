@@ -78,6 +78,7 @@ export default function TaffyRating() {
   const [useLocal, setUseLocal] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [expandedNote, setExpandedNote] = useState<string | null>(null);
+  const [justSubmitted, setJustSubmitted] = useState(false);
 
   // Submit form
   const [formDate, setFormDate] = useState(today);
@@ -117,11 +118,13 @@ export default function TaffyRating() {
   useEffect(() => { fetchRatings(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
   // Pre-fill form when selected date already has a rating
+  // (skip immediately after submit so the form stays blank)
   useEffect(() => {
+    if (justSubmitted) return;
     const existing = rows.find(r => r.date === formDate);
     if (existing) { setRating(existing.rating); setNotes(existing.feedback ?? ""); }
     else           { setRating(null); setNotes(""); }
-  }, [formDate, rows]);
+  }, [formDate, rows, justSubmitted]);
 
   async function handleSubmit() {
     if (!rating) return;
@@ -152,6 +155,10 @@ export default function TaffyRating() {
     }
     setSaving(false);
     setSaved(true);
+    setJustSubmitted(true);
+    setRating(null);
+    setNotes("");
+    setFormDate(today);
     setTimeout(() => setSaved(false), 2500);
   }
 
@@ -198,7 +205,7 @@ export default function TaffyRating() {
   if (loading) return <div className="card animate-pulse h-40" />;
 
   const existingForDate = rows.find(r => r.date === formDate);
-  const isUpdate = !!existingForDate;
+  const isUpdate = !!existingForDate && !justSubmitted;
 
   return (
     <div className="card">
@@ -220,7 +227,7 @@ export default function TaffyRating() {
           type="date"
           value={formDate}
           max={today}
-          onChange={e => setFormDate(e.target.value)}
+          onChange={e => { setFormDate(e.target.value); setJustSubmitted(false); }}
           className="input"
         />
       </div>

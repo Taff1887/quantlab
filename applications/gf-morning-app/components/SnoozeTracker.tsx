@@ -55,6 +55,28 @@ function lsUpsert(logs: SnoozeLog[], entry: SnoozeLog): SnoozeLog[] {
     .sort((a, b) => b.date.localeCompare(a.date));
 }
 
+// One-time seed for Tue/Wed/Thu 2026-05-12–14 (count: 1 each)
+const SEED_KEY = "snooze_seed_v1";
+
+function applySeedIfNeeded(logs: SnoozeLog[]): SnoozeLog[] {
+  try { if (localStorage.getItem(SEED_KEY)) return logs; } catch { return logs; }
+  const seeds = [
+    { date: "2026-05-12", count: 1 },
+    { date: "2026-05-13", count: 1 },
+    { date: "2026-05-14", count: 1 },
+  ];
+  let updated = logs;
+  for (const s of seeds) {
+    if (!updated.find(l => l.date === s.date)) {
+      const entry: SnoozeLog = { id: s.date, date: s.date, count: s.count, createdAt: new Date().toISOString() };
+      updated = lsUpsert(updated, entry);
+    }
+  }
+  lsSave(updated);
+  try { localStorage.setItem(SEED_KEY, "1"); } catch {}
+  return updated;
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 const OPTIONS = [0, 1, 2, 3, 4, 5];
@@ -82,7 +104,7 @@ export default function SnoozeTracker() {
     setLoading(true);
     if (!SUPABASE_ENABLED) {
       setUseLocal(true);
-      const local = lsLoad();
+      const local = applySeedIfNeeded(lsLoad());
       setLogs(local);
       const t = local.find(l => l.date === today);
       if (t) { setSelected(t.count); setSubmittedToday(true); }
@@ -105,7 +127,7 @@ export default function SnoozeTracker() {
       if (t) { setSelected(t.count); setSubmittedToday(true); }
     } catch {
       setUseLocal(true);
-      const local = lsLoad();
+      const local = applySeedIfNeeded(lsLoad());
       setLogs(local);
       const t = local.find(l => l.date === today);
       if (t) { setSelected(t.count); setSubmittedToday(true); }
@@ -290,9 +312,8 @@ export default function SnoozeTracker() {
         </div>
       )}
 
-      {/* Weekday bar chart */}
-      {chartDays.some(d => d.count !== null) && (
-        <div className="mb-4">
+      {/* Weekday bar chart — always visible */}
+      <div className="mb-4">
           <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-3">Last 2 weeks</p>
           <div className="flex items-end gap-1.5" style={{ height: 72 }}>
             {chartDays.map((day) => {
@@ -342,7 +363,6 @@ export default function SnoozeTracker() {
             ))}
           </div>
         </div>
-      )}
 
       {/* History */}
       {historyLogs.length > 0 && (
