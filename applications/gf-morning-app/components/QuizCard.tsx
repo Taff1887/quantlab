@@ -369,12 +369,9 @@ export default function QuizCard() {
             </div>
           </div>
           <div className="text-right flex-shrink-0">
-            <p className="text-[10px] text-white/60">
-              {quizState.recordStreak > quizState.streak ? "Streak · Best" : "Streak"}
-            </p>
+            <p className="text-[10px] text-white/60">Streak · Record</p>
             <p className="text-sm font-bold text-white">
-              {streakLabel(quizState.streak)}
-              {quizState.recordStreak > quizState.streak && ` · ${quizState.recordStreak}🏆`}
+              {streakLabel(quizState.streak)} · {Math.max(quizState.recordStreak, quizState.streak)}🏆
             </p>
           </div>
         </div>

@@ -77,7 +77,6 @@ export default function TaffyRating() {
   const [saved, setSaved]       = useState(false);
   const [useLocal, setUseLocal] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [expandedNote, setExpandedNote] = useState<string | null>(null);
   const [justSubmitted, setJustSubmitted] = useState(false);
 
   // Submit form
@@ -334,21 +333,13 @@ export default function TaffyRating() {
                     ) : (
                       <>
                         <div className="flex items-center gap-3">
-                          <span className={`text-xs font-bold px-2 py-1 rounded-lg border flex-shrink-0 ${ratingColor(row.rating)}`}>
-                            {row.rating}/10 <span style={{ display: "inline-block", width: 16, height: 16, fontSize: 14, lineHeight: "16px", textAlign: "center", overflow: "hidden", verticalAlign: "middle" }}>{ratingEmoji(row.rating)}</span>
+                          <span className={`text-xs font-bold px-2 py-1 rounded-lg border flex-shrink-0 w-[62px] text-center ${ratingColor(row.rating)}`}>
+                            {row.rating}/10 <span style={{ display: "inline-block", width: 14, height: 14, fontSize: 13, lineHeight: "14px", textAlign: "center", overflow: "hidden", verticalAlign: "middle" }}>{ratingEmoji(row.rating)}</span>
                           </span>
                           <p className="text-xs text-slate-500 flex-1">{formatDate(row.date)}</p>
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            {row.feedback && (
-                              <button
-                                onClick={() => setExpandedNote(expandedNote === row.id ? null : row.id)}
-                                className="text-xs text-blue-400 font-semibold"
-                              >
-                                {expandedNote === row.id ? "▲" : "▼ notes"}
-                              </button>
-                            )}
                             <button
-                              onClick={() => { setEditId(row.id); setEditRating(row.rating); setEditNotes(row.feedback ?? ""); setExpandedNote(null); }}
+                              onClick={() => { setEditId(row.id); setEditRating(row.rating); setEditNotes(row.feedback ?? ""); }}
                               className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
                             >
                               Edit
@@ -361,7 +352,7 @@ export default function TaffyRating() {
                             </button>
                           </div>
                         </div>
-                        {expandedNote === row.id && row.feedback && (
+                        {row.feedback && (
                           <p className="text-xs text-slate-400 italic mt-1.5 ml-1 leading-relaxed">
                             &ldquo;{row.feedback}&rdquo;
                           </p>
