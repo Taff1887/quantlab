@@ -1,4 +1,4 @@
-export const revalidate = 1800; // refresh every 30 min
+export const dynamic = "force-dynamic"; // never cache — fetch fresh every request
 
 // Google News RSS — searches for Ross Gittins articles on SMH.
 // Google's RSS is publicly accessible from any server (no CORS / blocking issues).
@@ -60,7 +60,7 @@ function parseItems(xml: string): RssItem[] {
 export async function GET() {
   try {
     const res = await fetch(GOOGLE_NEWS_URL, {
-      next: { revalidate: 1800 },
+      cache: "no-store",
       headers: { "User-Agent": "Mozilla/5.0 (compatible; RSS reader)" },
     });
 
