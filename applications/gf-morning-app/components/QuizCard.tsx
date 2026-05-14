@@ -101,10 +101,11 @@ interface QuizAnswer {
 }
 
 interface QuizState {
-  streak: number;        // rolling total — resets only on wrong answer
-  recordStreak: number;  // highest streak ever
-  coffee_won: boolean;   // just hit a coffee milestone (streak % 3 === 0)
-  migrated?: boolean;    // one-time +1 streak correction flag
+  streak: number;         // rolling total — resets only on wrong answer
+  recordStreak: number;   // highest streak ever
+  coffee_won: boolean;    // just hit a coffee milestone (streak % 3 === 0)
+  migrated?: boolean;     // one-time +1 streak correction flag (v1)
+  migrated_v2?: boolean;  // ensures streak starts at ≥ 2
 }
 
 // ─── localStorage helpers ────────────────────────────────────────────────────
@@ -225,6 +226,7 @@ export default function QuizCard() {
             recordStreak: (sd.record_streak as number | null) ?? 0,
             coffee_won:   (sd.coffee_won as boolean) ?? false,
             migrated:     (sd.migrated as boolean | null) ?? false,
+            migrated_v2:  (sd.migrated_v2 as boolean | null) ?? false,
           };
           lsSaveState(state);
         }
@@ -252,17 +254,17 @@ export default function QuizCard() {
       }
     }
 
-    // One-time +1 streak correction (v2 — brings streak to 2)
-    const STREAK_V2_KEY = "quiz_streak_v2";
-    if (typeof localStorage !== "undefined" && !localStorage.getItem(STREAK_V2_KEY)) {
-      state.streak = Math.max(0, (state.streak ?? 0) + 1);
-      state.recordStreak = Math.max(state.recordStreak ?? 0, state.streak);
+    // Ensure streak is at least 2 — applied whenever the loaded streak is below target.
+    // Uses a Supabase-side flag (migrated_v2) so it survives Supabase reconnects.
+    if (!state.migrated_v2 && state.streak < 2) {
+      state.streak = 2;
+      state.recordStreak = Math.max(state.recordStreak ?? 0, 2);
+      state.migrated_v2 = true;
       lsSaveState(state);
-      try { localStorage.setItem(STREAK_V2_KEY, "1"); } catch {}
       if (SUPABASE_ENABLED) {
         supabase.from("quiz_state").upsert({
           id: "singleton", streak: state.streak, record_streak: state.recordStreak,
-          coffee_won: state.coffee_won, migrated: true,
+          coffee_won: state.coffee_won, migrated: true, migrated_v2: true,
           updated_at: new Date().toISOString(),
         }).then(undefined, () => {});
       }
@@ -361,9 +363,12 @@ export default function QuizCard() {
             </div>
           </div>
           <div className="text-right flex-shrink-0">
-            <p className="text-[10px] text-white/60">Streak · Record</p>
+            <p className="text-[10px] text-white/60">
+              {quizState.recordStreak > quizState.streak ? "Streak · Best" : "Streak"}
+            </p>
             <p className="text-sm font-bold text-white">
-              {streakLabel(quizState.streak)} · {quizState.recordStreak}🏆
+              {streakLabel(quizState.streak)}
+              {quizState.recordStreak > quizState.streak && ` · ${quizState.recordStreak}🏆`}
             </p>
           </div>
         </div>

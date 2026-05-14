@@ -1,21 +1,11 @@
-export const revalidate = 3600; // refresh hourly
+export const revalidate = 1800; // refresh every 30 min
 
-// Australian economy news sources
-// SMH Business is primary because Ross Gittins writes there
-const SMH_BUSINESS =
-  "https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fwww.smh.com.au%2Frss%2Fbusiness.xml&count=20";
-const ABC_BUSINESS =
-  "https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fwww.abc.net.au%2Fnews%2Ffeed%2F2942578%2Frss.xml&count=10";
-
-const FALLBACK = {
-  title: "RBA holds rates as inflation edges toward target",
-  link: "https://www.smh.com.au/business/economy",
-  description:
-    "The Reserve Bank of Australia has held the cash rate steady as headline inflation continues its gradual decline toward the 2–3 per cent target band, with the board signalling it remains data-dependent on the timing of any future cuts.",
-  pubDate: new Date().toISOString(),
-  source: "SMH Business",
-  isRossGittins: false,
-};
+// Gittins Gospel — only Ross Gittins articles from SMH
+// Try his author RSS first, then filter the business RSS as a fallback
+const GITTINS_AUTHOR_RSS =
+  "https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fwww.smh.com.au%2Fby%2Fross-gittins.rss&count=3";
+const SMH_BUSINESS_RSS =
+  "https://api.rss2json.com/v1/api.json?rss_url=https%3A%2F%2Fwww.smh.com.au%2Frss%2Fbusiness.xml&count=30";
 
 function stripHtml(html: string): string {
   return html
@@ -39,64 +29,55 @@ interface RssItem {
   creator?: string;
 }
 
-function isRossGittins(item: RssItem): boolean {
-  const haystack = [item.author ?? "", item.creator ?? "", item.title ?? ""]
+function isGittins(item: RssItem): boolean {
+  const hay = [item.author ?? "", item.creator ?? "", item.title ?? ""]
     .join(" ")
     .toLowerCase();
-  return haystack.includes("gittins");
+  return hay.includes("gittins");
 }
 
-function formatItem(item: RssItem, source: string, rossGittins: boolean) {
+function formatItem(item: RssItem) {
   const rawDesc = item.description ?? "";
-  const clean = stripHtml(rawDesc);
-  const description =
-    clean.length > 220 ? clean.slice(0, 217).trimEnd() + "…" : clean;
+  const clean   = stripHtml(rawDesc);
+  const description = clean.length > 300 ? clean.slice(0, 297).trimEnd() + "…" : clean;
   return {
-    title: item.title ?? FALLBACK.title,
-    link: item.link ?? FALLBACK.link,
-    description: description || FALLBACK.description,
+    found: true,
+    title: item.title ?? "",
+    link: item.link ?? "https://www.smh.com.au/by/ross-gittins",
+    description,
     pubDate: item.pubDate ?? new Date().toISOString(),
-    source,
-    isRossGittins: rossGittins,
   };
 }
 
 async function fetchFeed(url: string): Promise<RssItem[]> {
-  const res = await fetch(url, { next: { revalidate: 3600 } });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data?.items ?? []) as RssItem[];
+  try {
+    const res = await fetch(url, { next: { revalidate: 1800 } });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data?.items ?? []) as RssItem[];
+  } catch {
+    return [];
+  }
 }
 
 export async function GET() {
   try {
-    // Fetch SMH first (contains Ross Gittins), ABC as backup
-    const [smhItems, abcItems] = await Promise.allSettled([
-      fetchFeed(SMH_BUSINESS),
-      fetchFeed(ABC_BUSINESS),
-    ]);
+    // Try author-specific RSS first (most targeted)
+    const authorItems = await fetchFeed(GITTINS_AUTHOR_RSS);
+    if (authorItems.length > 0) {
+      return Response.json(formatItem(authorItems[0]));
+    }
 
-    const smh = smhItems.status === "fulfilled" ? smhItems.value : [];
-    const abc = abcItems.status === "fulfilled" ? abcItems.value : [];
-
-    // Priority 1: Latest Ross Gittins article in SMH
-    const gittins = smh.find(isRossGittins);
+    // Fall back to business RSS, filter for Gittins by author field
+    const businessItems = await fetchFeed(SMH_BUSINESS_RSS);
+    const gittins = businessItems.find(isGittins);
     if (gittins) {
-      return Response.json(formatItem(gittins, "Ross Gittins · SMH", true));
+      return Response.json(formatItem(gittins));
     }
 
-    // Priority 2: Most recent SMH Business article
-    if (smh.length > 0) {
-      return Response.json(formatItem(smh[0], "SMH Business", false));
-    }
-
-    // Priority 3: Most recent ABC Business article
-    if (abc.length > 0) {
-      return Response.json(formatItem(abc[0], "ABC Business", false));
-    }
-
-    return Response.json(FALLBACK);
+    // No article found today
+    return Response.json({ found: false });
   } catch {
-    return Response.json(FALLBACK);
+    return Response.json({ found: false });
   }
 }
