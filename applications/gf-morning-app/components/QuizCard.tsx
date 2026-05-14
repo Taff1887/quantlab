@@ -101,9 +101,10 @@ interface QuizAnswer {
 }
 
 interface QuizState {
-  week: string;
-  streak: number;
-  coffee_won: boolean;
+  streak: number;        // rolling total — resets only on wrong answer
+  recordStreak: number;  // highest streak ever
+  coffee_won: boolean;   // just hit a coffee milestone (streak % 3 === 0)
+  migrated?: boolean;    // one-time +1 streak correction flag
 }
 
 // ─── localStorage helpers ────────────────────────────────────────────────────
@@ -143,46 +144,47 @@ function lsSaveState(state: QuizState) {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function todayStr() { return new Date().toISOString().split("T")[0]; }
-
-function getWeekKey(date = new Date()): string {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
-  const week1 = new Date(d.getFullYear(), 0, 4);
-  const weekNum = 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
-  return `${d.getFullYear()}-W${String(weekNum).padStart(2, "0")}`;
+/** Sydney-local date string YYYY-MM-DD — prevents UTC midnight issues */
+function todayStr() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
 }
 
+/** Day-of-year index using Sydney local date */
 function dayOfYear() {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), 0, 0);
-  return Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  const syd = new Date().toLocaleDateString("en-AU", {
+    timeZone: "Australia/Sydney", year: "numeric", month: "2-digit", day: "2-digit",
+  }); // returns "DD/MM/YYYY"
+  const [d, m, y] = syd.split("/").map(Number);
+  const now   = new Date(y, m - 1, d);
+  const start = new Date(y, 0, 0);
+  return Math.floor((now.getTime() - start.getTime()) / 86_400_000);
 }
 
-function streakEmoji(n: number) {
+function streakLabel(n: number) {
   if (n === 0) return "—";
   if (n === 1) return "1 ✅";
-  if (n === 2) return "2 🔥";
+  if (n <= 3) return `${n} 🔥`;
   return `${n} 🔥🔥`;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function QuizCard() {
-  const today = todayStr();
-  const currentWeek = getWeekKey();
+  const today      = todayStr();
   const questionIdx = dayOfYear() % QUESTIONS.length;
-  const question = QUESTIONS[questionIdx];
+  const question   = QUESTIONS[questionIdx];
 
   const [loading, setLoading] = useState(true);
   const [todayAnswer, setTodayAnswer] = useState<QuizAnswer | null>(null);
-  const [quizState, setQuizState] = useState<QuizState>({ week: currentWeek, streak: 0, coffee_won: false });
+  const [quizState, setQuizState] = useState<QuizState>({ streak: 0, recordStreak: 0, coffee_won: false });
   const [selected, setSelected] = useState<number | null>(null);
   const [revealed, setRevealed] = useState(false);
+  const [loadedDate, setLoadedDate] = useState(today);
 
   async function load() {
     setLoading(true);
+    const currentToday = todayStr();
+    setLoadedDate(currentToday);
 
     // ── Load today's answer ──────────────────────────────────────────────────
     let answerFromDb: QuizAnswer | null = null;
@@ -192,7 +194,7 @@ export default function QuizCard() {
         const { data: ansData, error } = await supabase
           .from("quiz_answers")
           .select("*")
-          .eq("date", today)
+          .eq("date", currentToday)
           .maybeSingle();
         if (!error && ansData) {
           answerFromDb = {
@@ -201,56 +203,52 @@ export default function QuizCard() {
             selected_index: ansData.selected_index as number,
             is_correct:     ansData.is_correct as boolean,
           };
-          // Mirror to localStorage so it's available if Supabase goes down
           lsSaveAnswer(answerFromDb);
         }
       } catch { /* fall through to localStorage */ }
     }
-
-    // Fall back to localStorage if Supabase didn't return anything
-    if (!answerFromDb) {
-      answerFromDb = lsLoadAnswer(today);
-    }
+    if (!answerFromDb) answerFromDb = lsLoadAnswer(currentToday);
 
     // ── Load quiz state ──────────────────────────────────────────────────────
-    let state: QuizState = { week: currentWeek, streak: 0, coffee_won: false };
+    let state: QuizState = { streak: 0, recordStreak: 0, coffee_won: false };
 
     if (SUPABASE_ENABLED) {
       try {
-        const { data: stateData, error } = await supabase
+        const { data: sd, error } = await supabase
           .from("quiz_state")
           .select("*")
           .eq("id", "singleton")
           .maybeSingle();
-
-        if (!error && stateData) {
-          if ((stateData.week as string) !== currentWeek) {
-            // New week — reset
-            state = { week: currentWeek, streak: 0, coffee_won: false };
-            await supabase.from("quiz_state").upsert({
-              id: "singleton", week: currentWeek, streak: 0, coffee_won: false,
-              updated_at: new Date().toISOString(),
-            });
-          } else {
-            state = {
-              week:       stateData.week as string,
-              streak:     stateData.streak as number,
-              coffee_won: stateData.coffee_won as boolean,
-            };
-          }
+        if (!error && sd) {
+          state = {
+            streak:       (sd.streak as number) ?? 0,
+            recordStreak: (sd.record_streak as number | null) ?? 0,
+            coffee_won:   (sd.coffee_won as boolean) ?? false,
+            migrated:     (sd.migrated as boolean | null) ?? false,
+          };
           lsSaveState(state);
         }
-      } catch { /* fall through to localStorage */ }
+      } catch { /* fall through */ }
     }
 
-    // Fall back to localStorage if Supabase didn't return anything
+    // localStorage fallback
     if (state.streak === 0 && !state.coffee_won) {
-      const lsState = lsLoadState();
-      if (lsState) {
-        // Reset on new week
-        state = lsState.week === currentWeek
-          ? lsState
-          : { week: currentWeek, streak: 0, coffee_won: false };
+      const ls = lsLoadState();
+      if (ls) state = ls;
+    }
+
+    // One-time +1 streak correction
+    if (!state.migrated) {
+      state.streak = Math.max(0, (state.streak ?? 0) + 1);
+      state.recordStreak = Math.max(state.recordStreak ?? 0, state.streak);
+      state.migrated = true;
+      lsSaveState(state);
+      if (SUPABASE_ENABLED) {
+        supabase.from("quiz_state").upsert({
+          id: "singleton", streak: state.streak, record_streak: state.recordStreak,
+          coffee_won: state.coffee_won, migrated: true,
+          updated_at: new Date().toISOString(),
+        }).catch(() => {});
       }
     }
 
@@ -267,49 +265,62 @@ export default function QuizCard() {
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
+  // Day-change detection — refresh when Sydney date rolls over
+  useEffect(() => {
+    const id = setInterval(() => {
+      const newDay = todayStr();
+      if (newDay !== loadedDate) {
+        // New day: reset revealed state and reload
+        setRevealed(false);
+        setSelected(null);
+        setTodayAnswer(null);
+        load();
+      }
+    }, 60_000); // check every minute
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadedDate]);
+
   async function handleAnswer(idx: number) {
     if (revealed) return;
     setSelected(idx);
     setRevealed(true);
 
-    const isCorrect = idx === question.correct;
-    const newStreak = isCorrect ? quizState.streak + 1 : 0;
-    const coffeeWon = quizState.coffee_won || newStreak >= 3;
+    const isCorrect  = idx === question.correct;
+    const newStreak  = isCorrect ? quizState.streak + 1 : 0;
+    const newRecord  = Math.max(quizState.recordStreak, newStreak);
+    // Coffee milestone: hit a multiple of 3 AND we just got one correct
+    const coffeeWon  = isCorrect && newStreak > 0 && newStreak % 3 === 0;
 
-    const newState: QuizState = { week: currentWeek, streak: newStreak, coffee_won: coffeeWon };
+    const newState: QuizState = {
+      streak: newStreak, recordStreak: newRecord,
+      coffee_won: coffeeWon, migrated: true,
+    };
     setQuizState(newState);
 
     const answer: QuizAnswer = {
-      date: today,
-      question_index: questionIdx,
-      selected_index: idx,
-      is_correct: isCorrect,
+      date: today, question_index: questionIdx,
+      selected_index: idx, is_correct: isCorrect,
     };
     setTodayAnswer(answer);
 
-    // Always save to localStorage first (instant, reliable)
     lsSaveAnswer(answer);
     lsSaveState(newState);
 
-    // Then try Supabase
     if (SUPABASE_ENABLED) {
       try {
         await supabase.from("quiz_answers").upsert({
-          id: today, date: today,
-          question_index: questionIdx,
-          selected_index: idx,
-          is_correct: isCorrect,
+          id: today, date: today, question_index: questionIdx,
+          selected_index: idx, is_correct: isCorrect,
           created_at: new Date().toISOString(),
         }, { onConflict: "date" });
 
         await supabase.from("quiz_state").upsert({
-          id: "singleton",
-          week: currentWeek,
-          streak: newStreak,
-          coffee_won: coffeeWon,
+          id: "singleton", streak: newStreak, record_streak: newRecord,
+          coffee_won: coffeeWon, migrated: true,
           updated_at: new Date().toISOString(),
         });
-      } catch { /* localStorage already saved — silent fail */ }
+      } catch { /* silent — localStorage already saved */ }
     }
   }
 
@@ -317,6 +328,10 @@ export default function QuizCard() {
 
   const answeredCorrectly = todayAnswer?.is_correct ?? (revealed && selected === question.correct);
   const answeredWrong = revealed && selected !== question.correct;
+
+  // Current cycle position: X / 3 towards next coffee
+  const cyclePos    = quizState.streak % 3;
+  const toNextCoffee = cyclePos === 0 ? 3 : 3 - cyclePos;
 
   return (
     <div className="card">
@@ -326,12 +341,14 @@ export default function QuizCard() {
             <span className="text-xl">🧠</span>
             <div>
               <p className="text-xs font-bold text-white uppercase tracking-wide">Question of the Day</p>
-              <p className="text-xs text-sky-100">3 correct in a row = ☕ free coffee</p>
+              <p className="text-xs text-sky-100">3 in a row = ☕ · {toNextCoffee} to go</p>
             </div>
           </div>
           <div className="text-right flex-shrink-0">
-            <p className="text-xs text-white/60">Streak</p>
-            <p className="text-sm font-bold text-white">{streakEmoji(quizState.streak)}</p>
+            <p className="text-[10px] text-white/60">Streak · Record</p>
+            <p className="text-sm font-bold text-white">
+              {streakLabel(quizState.streak)} · {quizState.recordStreak}🏆
+            </p>
           </div>
         </div>
       </div>
@@ -339,8 +356,10 @@ export default function QuizCard() {
       {/* Coffee won banner */}
       {quizState.coffee_won && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 mb-4 text-center">
-          <p className="text-lg font-bold text-amber-700">☕ Coffee earned this week!</p>
-          <p className="text-xs text-amber-600 mt-0.5">You got 3 in a row — go claim it 😄</p>
+          <p className="text-lg font-bold text-amber-700">☕ Coffee earned!</p>
+          <p className="text-xs text-amber-600 mt-0.5">
+            {quizState.streak} in a row — go claim it 😄
+          </p>
         </div>
       )}
 
@@ -387,9 +406,9 @@ export default function QuizCard() {
           {answeredWrong && (
             <p className="mt-1 text-xs opacity-80">Streak reset to 0. Come back tomorrow! 💪</p>
           )}
-          {answeredCorrectly && quizState.streak < 3 && (
+          {answeredCorrectly && !quizState.coffee_won && (
             <p className="mt-1 text-xs opacity-80">
-              {3 - quizState.streak} more correct answer{3 - quizState.streak !== 1 ? "s" : ""} for a coffee ☕
+              {toNextCoffee} more correct answer{toNextCoffee !== 1 ? "s" : ""} for a coffee ☕
             </p>
           )}
         </div>
