@@ -49,7 +49,6 @@ export default function DashboardClient({ top10, allAnnouncements, report }: Pro
   const [quotes, setQuotes] = useState<Record<string, LiveQuote>>({});
   const [selectedTicker, setSelectedTicker] = useState<string>(top10[0]?.ticker ?? "");
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
-  const [chartInterval, setChartInterval] = useState<"1m" | "5m" | "15m">("5m");
 
   const tickers = Array.from(new Set(top10.map((a) => a.ticker)));
 
@@ -172,38 +171,21 @@ export default function DashboardClient({ top10, allAnnouncements, report }: Pro
       {/* ─── LIVE INTRADAY CHART ──────────────────────────────────────── */}
       {selectedTicker && (
         <div className="card">
-          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-            <div className="flex items-center gap-3">
-              <h2 className="text-sm font-bold text-gray-300 uppercase tracking-widest">
-                Live Price Chart
-              </h2>
-              <Link
-                href={`/company/${selectedTicker}`}
-                className="font-mono text-emerald-400 hover:text-emerald-300 font-bold text-lg"
-              >
-                {selectedTicker}
-              </Link>
-            </div>
-            <div className="flex gap-1">
-              {(["1m", "5m", "15m"] as const).map((iv) => (
-                <button
-                  key={iv}
-                  onClick={() => setChartInterval(iv)}
-                  className={`px-2.5 py-1 text-xs rounded-lg transition-colors font-mono ${
-                    chartInterval === iv
-                      ? "bg-emerald-600 text-white"
-                      : "bg-gray-800 text-gray-400 hover:text-gray-200"
-                  }`}
-                >
-                  {iv}
-                </button>
-              ))}
-            </div>
+          <div className="flex items-center gap-3 mb-4">
+            <h2 className="text-sm font-bold text-gray-300 uppercase tracking-widest">
+              Live Price Chart
+            </h2>
+            <Link
+              href={`/company/${selectedTicker}`}
+              className="font-mono text-emerald-400 hover:text-emerald-300 font-bold text-lg"
+            >
+              {selectedTicker}
+            </Link>
+            <span className="text-xs text-gray-500">· click any row above to switch</span>
           </div>
           <LivePriceChart
-            key={`${selectedTicker}-${chartInterval}`}
+            key={selectedTicker}
             ticker={selectedTicker}
-            interval={chartInterval}
             refreshSeconds={60}
           />
           <p className="text-xs text-gray-600 mt-2">
