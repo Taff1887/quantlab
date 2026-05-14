@@ -248,7 +248,7 @@ export default function QuizCard() {
           id: "singleton", streak: state.streak, record_streak: state.recordStreak,
           coffee_won: state.coffee_won, migrated: true,
           updated_at: new Date().toISOString(),
-        }).catch(() => {});
+        }).then(undefined, () => {});
       }
     }
 
