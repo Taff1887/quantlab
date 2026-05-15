@@ -295,9 +295,11 @@ def get_mover_news(
     db: Session = Depends(get_db),
 ):
     """
-    For tickers with abs(daily_move_pct) >= threshold, fetch recent headlines
-    from Yahoo Finance via yfinance. Returns {ticker: [headlines]} dict.
+    For tickers with abs(daily_move_pct) >= threshold, return the reason for the move:
+    1. If the ticker has an announcement today in our DB — use that (most reliable)
+    2. Otherwise fall back to Yahoo Finance news, but ONLY if published within 24 hours
     """
+    import time
     import yfinance as yf
 
     if date:
@@ -318,27 +320,70 @@ def get_mover_news(
     )
     big_movers = [p for p in big_movers if p.daily_move_pct is not None and abs(p.daily_move_pct) >= threshold]
 
+    cutoff_ts = time.time() - 86_400  # 24 hours ago as unix timestamp
     result = {}
+
     for price in big_movers:
+        # ── 1. Check our DB for an announcement today ──────────────────
+        ann = (
+            db.query(Announcement)
+            .filter(
+                Announcement.ticker == price.ticker,
+                Announcement.announcement_datetime >= datetime(target.year, target.month, target.day),
+                Announcement.announcement_datetime < datetime(target.year, target.month, target.day, 23, 59, 59),
+            )
+            .order_by(Announcement.importance_score.desc())
+            .first()
+        )
+
+        if ann:
+            result[price.ticker] = [{
+                "source": "announcement",
+                "title": ann.title,
+                "summary": ann.why_it_matters or ann.summary_short or "",
+                "url": ann.source_url or "",
+                "publisher": "ASX Announcement",
+                "type": ann.announcement_type or "",
+            }]
+            continue
+
+        # ── 2. Fall back to Yahoo Finance — 24h filter only ────────────
         try:
             ticker_obj = yf.Ticker(f"{price.ticker}.AX")
             raw_news = ticker_obj.news or []
-            headlines = []
-            for item in raw_news[:3]:
-                content = item.get("content", item)  # yfinance v0.2.x vs older
+            fresh = []
+            for item in raw_news:
+                content = item.get("content", item)
+                # pub date — try multiple locations
+                pub_ts = (
+                    content.get("pubDate")
+                    or content.get("displayTime")
+                    or item.get("providerPublishTime")
+                )
+                # Convert ISO string to timestamp if needed
+                if isinstance(pub_ts, str):
+                    try:
+                        from datetime import timezone
+                        pub_ts = datetime.fromisoformat(pub_ts.replace("Z", "+00:00")).timestamp()
+                    except Exception:
+                        pub_ts = 0
+                if pub_ts and float(pub_ts) < cutoff_ts:
+                    continue  # skip — older than 24h
+
                 title = content.get("title") or item.get("title", "")
                 summary = content.get("summary") or item.get("summary", "")
                 url = (content.get("canonicalUrl") or {}).get("url") or item.get("link", "")
                 publisher = (content.get("provider") or {}).get("displayName") or item.get("publisher", "")
                 if title:
-                    headlines.append({
+                    fresh.append({
+                        "source": "news",
                         "title": title,
                         "summary": summary[:200] if summary else "",
                         "url": url,
                         "publisher": publisher,
                     })
-            if headlines:
-                result[price.ticker] = headlines
+            if fresh:
+                result[price.ticker] = fresh[:2]
         except Exception as e:
             logger.debug("News fetch failed for %s: %s", price.ticker, e)
 

@@ -58,7 +58,7 @@ export default function DashboardClient({ top10, allAnnouncements, report }: Pro
   const [selectedTicker, setSelectedTicker] = useState<string>(top10[0]?.ticker ?? "");
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [movers, setMovers] = useState<{ gainers: Mover[]; losers: Mover[] }>({ gainers: [], losers: [] });
-  const [moverNews, setMoverNews] = useState<Record<string, { title: string; summary: string; url: string; publisher: string }[]>>({});
+  const [moverNews, setMoverNews] = useState<Record<string, { source: string; title: string; summary: string; url: string; publisher: string; type?: string }[]>>({});
 
   const tickers = Array.from(new Set(top10.map((a) => a.ticker)));
 
@@ -260,9 +260,14 @@ export default function DashboardClient({ top10, allAnnouncements, report }: Pro
                       <MoveChip pct={m.daily_move_pct} />
                     </div>
                     <p className="text-xs text-gray-500 mt-0.5 ml-[68px] truncate">{m.company_name}</p>
-                    {/* News for big movers */}
+                    {/* Reason for move */}
                     {isBig && news && news[0] && (
-                      <div className="mt-2 ml-[68px] border-l-2 border-emerald-500/40 pl-2">
+                      <div className={`mt-2 ml-[68px] border-l-2 pl-2 ${news[0].source === "announcement" ? "border-emerald-500/60" : "border-gray-600"}`}>
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${news[0].source === "announcement" ? "bg-emerald-500/20 text-emerald-400" : "bg-gray-700 text-gray-400"}`}>
+                            {news[0].source === "announcement" ? `ASX · ${news[0].type || "Announcement"}` : news[0].publisher}
+                          </span>
+                        </div>
                         <a href={news[0].url} target="_blank" rel="noopener noreferrer"
                           className="text-xs text-gray-200 hover:text-white font-medium line-clamp-2 leading-snug">
                           {news[0].title}
@@ -270,11 +275,13 @@ export default function DashboardClient({ top10, allAnnouncements, report }: Pro
                         {news[0].summary && (
                           <p className="text-xs text-gray-500 mt-0.5 line-clamp-2 leading-snug">{news[0].summary}</p>
                         )}
-                        <p className="text-xs text-gray-600 mt-0.5">{news[0].publisher}</p>
                       </div>
                     )}
+                    {isBig && news && news.length === 0 && (
+                      <p className="text-xs text-gray-600 mt-1.5 ml-[68px] italic">No recent news in last 24h</p>
+                    )}
                     {isBig && !news && (
-                      <p className="text-xs text-gray-600 mt-1.5 ml-[68px] italic">Searching for news…</p>
+                      <p className="text-xs text-gray-600 mt-1.5 ml-[68px] italic">Loading…</p>
                     )}
                   </div>
                 );
