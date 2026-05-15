@@ -9,6 +9,7 @@ import {
   YAxis,
   Tooltip,
   ReferenceLine,
+  TooltipProps,
 } from "recharts";
 import { format } from "date-fns";
 
@@ -28,11 +29,47 @@ function fmtTime(iso: string) {
 }
 
 function fmtPrice(v: number) {
-  return `$${v.toFixed(3)}`;
+  // Adaptive decimals: small stocks need more
+  if (v < 0.1) return `$${v.toFixed(4)}`;
+  if (v < 1)   return `$${v.toFixed(3)}`;
+  return `$${v.toFixed(2)}`;
+}
+
+function pctFromRef(price: number, ref: number) {
+  if (!ref) return null;
+  return ((price - ref) / ref) * 100;
+}
+
+// Custom tooltip showing time, price, and % change from prev close
+function ChartTooltip({
+  active, payload, label, prevClose, colour,
+}: TooltipProps<number, string> & { prevClose: number | null; colour: string }) {
+  if (!active || !payload?.length) return null;
+  const price = payload[0]?.value as number | undefined;
+  if (price == null) return null;
+
+  const pct = prevClose ? pctFromRef(price, prevClose) : null;
+  const isUp = (pct ?? 0) >= 0;
+
+  return (
+    <div className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 shadow-xl text-xs">
+      <p className="text-gray-400 mb-1">{label}</p>
+      <p className="font-mono font-bold text-white text-sm">{fmtPrice(price)}</p>
+      {pct != null && (
+        <p className={`font-mono font-bold mt-0.5 ${isUp ? "text-emerald-400" : "text-red-400"}`}>
+          {isUp ? "▲" : "▼"} {Math.abs(pct).toFixed(2)}% vs prev close
+        </p>
+      )}
+      {prevClose != null && (
+        <p className="text-gray-600 mt-0.5">Prev close: {fmtPrice(prevClose)}</p>
+      )}
+    </div>
+  );
 }
 
 export default function LivePriceChart({ ticker, refreshSeconds = 60 }: Props) {
   const [bars, setBars] = useState<Bar[]>([]);
+  const [prevClose, setPrevClose] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
@@ -42,6 +79,7 @@ export default function LivePriceChart({ ticker, refreshSeconds = 60 }: Props) {
       if (!res.ok) return;
       const data = await res.json();
       setBars(data.bars ?? []);
+      if (data.prev_close != null) setPrevClose(data.prev_close);
       setLastUpdated(new Date());
     } catch { /* market closed or offline */ }
     finally { setLoading(false); }
@@ -67,18 +105,21 @@ export default function LivePriceChart({ ticker, refreshSeconds = 60 }: Props) {
     );
   }
 
-  const openPrice = bars[0]?.open ?? bars[0]?.close ?? 0;
+  const openPrice   = bars[0]?.open ?? bars[0]?.close ?? 0;
   const currentPrice = bars[bars.length - 1]?.close ?? 0;
-  const isUp = currentPrice >= openPrice;
-  const changePct = openPrice ? ((currentPrice - openPrice) / openPrice) * 100 : 0;
-  const changeAbs = currentPrice - openPrice;
+
+  // Primary reference: prev close (vs yesterday). Fallback: today's open.
+  const ref = prevClose ?? openPrice;
+  const changePct = ref ? pctFromRef(currentPrice, ref) ?? 0 : 0;
+  const changeAbs = currentPrice - ref;
+  const isUp = changePct >= 0;
 
   const prices = bars.map(b => b.close).filter((p): p is number => p !== null);
-  const minP = Math.min(...prices);
-  const maxP = Math.max(...prices);
-  const pad = (maxP - minP) * 0.15 || 0.01;
+  const allPrices = prevClose ? [...prices, prevClose] : prices;
+  const minP = Math.min(...allPrices);
+  const maxP = Math.max(...allPrices);
+  const pad = (maxP - minP) * 0.15 || openPrice * 0.05 || 0.001;
 
-  // Thin out x-axis labels — show ~6 evenly spaced
   const labelEvery = Math.max(1, Math.floor(bars.length / 6));
 
   const chartData = bars.map((b, i) => ({
@@ -87,7 +128,7 @@ export default function LivePriceChart({ ticker, refreshSeconds = 60 }: Props) {
     showLabel: i === 0 || i === bars.length - 1 || i % labelEvery === 0,
   }));
 
-  const colour = isUp ? "#10B981" : "#EF4444";
+  const colour    = isUp ? "#10B981" : "#EF4444";
   const colourFade = isUp ? "#10B98120" : "#EF444420";
 
   return (
@@ -106,18 +147,26 @@ export default function LivePriceChart({ ticker, refreshSeconds = 60 }: Props) {
             <span className="text-sm font-normal ml-1 opacity-70">
               ({isUp ? "+" : ""}{fmtPrice(changeAbs)})
             </span>
+            {prevClose && (
+              <span className="text-xs text-gray-500 font-normal ml-2 block">
+                vs prev close {fmtPrice(prevClose)}
+              </span>
+            )}
           </div>
         </div>
-        <div className="text-right text-xs text-gray-500">
+        <div className="text-right text-xs text-gray-500 space-y-0.5">
           <div>Open: <span className="text-gray-300 font-mono">{fmtPrice(openPrice)}</span></div>
-          <div>High: <span className="text-gray-300 font-mono">{fmtPrice(Math.max(...prices))}</span>  Low: <span className="text-gray-300 font-mono">{fmtPrice(Math.min(...prices))}</span></div>
+          <div>
+            High: <span className="text-emerald-400 font-mono">{fmtPrice(Math.max(...prices))}</span>
+            {"  "}Low: <span className="text-red-400 font-mono">{fmtPrice(Math.min(...prices))}</span>
+          </div>
           {lastUpdated && <div className="mt-0.5">Live · {format(lastUpdated, "HH:mm:ss")} · refreshes {refreshSeconds}s</div>}
         </div>
       </div>
 
       {/* Chart */}
       <ResponsiveContainer width="100%" height={200}>
-        <AreaChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+        <AreaChart data={chartData} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id={`grad-${ticker}`} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={colour} stopOpacity={0.3} />
@@ -125,18 +174,37 @@ export default function LivePriceChart({ ticker, refreshSeconds = 60 }: Props) {
             </linearGradient>
           </defs>
 
-          {/* Open price dashed reference */}
-          <ReferenceLine
-            y={openPrice}
-            stroke="#4B5563"
-            strokeDasharray="4 3"
-            label={{
-              value: `Open ${fmtPrice(openPrice)}`,
-              position: "insideTopLeft",
-              fill: "#6B7280",
-              fontSize: 10,
-            }}
-          />
+          {/* Prev close reference line — the most important visual anchor */}
+          {prevClose != null && (
+            <ReferenceLine
+              y={prevClose}
+              stroke="#F59E0B"
+              strokeDasharray="5 3"
+              strokeWidth={1.5}
+              label={{
+                value: `Prev close ${fmtPrice(prevClose)}`,
+                position: "insideTopRight",
+                fill: "#F59E0B",
+                fontSize: 10,
+              }}
+            />
+          )}
+
+          {/* Today's open — secondary reference */}
+          {openPrice !== prevClose && (
+            <ReferenceLine
+              y={openPrice}
+              stroke="#4B5563"
+              strokeDasharray="3 3"
+              strokeWidth={1}
+              label={{
+                value: `Open ${fmtPrice(openPrice)}`,
+                position: "insideBottomRight",
+                fill: "#6B7280",
+                fontSize: 9,
+              }}
+            />
+          )}
 
           <XAxis
             dataKey="time"
@@ -150,14 +218,11 @@ export default function LivePriceChart({ ticker, refreshSeconds = 60 }: Props) {
             tick={{ fill: "#6B7280", fontSize: 10 }}
             tickLine={false}
             axisLine={false}
-            tickFormatter={(v) => `$${Number(v).toFixed(2)}`}
-            width={54}
+            tickFormatter={(v) => fmtPrice(Number(v))}
+            width={60}
           />
           <Tooltip
-            contentStyle={{ backgroundColor: "#111827", border: "1px solid #374151", borderRadius: 8, fontSize: 12 }}
-            labelStyle={{ color: "#9CA3AF" }}
-            formatter={(v: number) => [fmtPrice(v), ticker]}
-            itemStyle={{ color: colour }}
+            content={<ChartTooltip prevClose={prevClose} colour={colour} />}
           />
           <Area
             type="monotone"

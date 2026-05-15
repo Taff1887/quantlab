@@ -56,8 +56,13 @@ def company_intraday(
     Fetched fresh from yfinance on every call — poll every 60s from the frontend.
     Returns [] outside ASX market hours (10am–4pm AEST Mon–Fri).
     """
-    bars = fetch_intraday_bars(ticker.upper(), interval=interval)
-    return {"ticker": ticker.upper(), "interval": interval, "bars": bars}
+    result = fetch_intraday_bars(ticker.upper(), interval=interval)
+    return {
+        "ticker": ticker.upper(),
+        "interval": interval,
+        "bars": result.get("bars", []),
+        "prev_close": result.get("prev_close"),
+    }
 
 
 @router.get("/{ticker}/quote")

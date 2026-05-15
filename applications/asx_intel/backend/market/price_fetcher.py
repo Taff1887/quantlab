@@ -167,68 +167,97 @@ def save_price_data(price: dict[str, Any], db: Session) -> None:
         db.rollback()
 
 
-def fetch_intraday_bars(ticker: str, interval: str = "1m") -> list[dict[str, Any]]:
+def fetch_intraday_bars(ticker: str, interval: str = "1m") -> dict[str, Any]:
     """
     Fetch today's intraday OHLCV bars for a ticker.
 
     interval options: "1m", "2m", "5m", "15m"
-    Returns a list of {time, open, high, low, close, volume} dicts.
-    Returns [] if market is closed or data unavailable.
+    Returns {"bars": [...], "prev_close": float | None}
+    bars are {time, open, high, low, close, volume} dicts for today only.
+    Returns {"bars": [], "prev_close": None} if unavailable.
     """
     try:
         asx_ticker = _to_asx_ticker(ticker)
+        # Fetch 5 days so we always capture the previous trading day's close
         df = yf.download(
             asx_ticker,
-            period="1d",
+            period="5d",
             interval=interval,
             progress=False,
             auto_adjust=True,
         )
         if df.empty:
-            return []
+            return {"bars": [], "prev_close": None}
 
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
-        bars = []
+        # Split into today vs earlier using AEST date
+        import pytz
+        AEST = pytz.timezone("Australia/Sydney")
+        now_aest = datetime.now(AEST)
+        today_str = now_aest.strftime("%Y-%m-%d")
+
+        prev_close = None
+        today_bars = []
+        last_prev_close = None
+
         for ts, row in df.iterrows():
-            bars.append({
-                "time": ts.isoformat(),
-                "open": round(float(row["Open"]), 4) if pd.notna(row["Open"]) else None,
-                "high": round(float(row["High"]), 4) if pd.notna(row["High"]) else None,
-                "low": round(float(row["Low"]), 4) if pd.notna(row["Low"]) else None,
-                "close": round(float(row["Close"]), 4) if pd.notna(row["Close"]) else None,
-                "volume": int(row["Volume"]) if pd.notna(row["Volume"]) else None,
-            })
-        return bars
+            # Localise timestamp
+            if hasattr(ts, "tz_localize"):
+                ts_aest = ts.tz_localize("UTC").tz_convert(AEST) if ts.tzinfo is None else ts.tz_convert(AEST)
+            else:
+                ts_aest = ts
+            bar_date = ts_aest.strftime("%Y-%m-%d")
+            close_val = round(float(row["Close"]), 4) if pd.notna(row["Close"]) else None
+
+            if bar_date < today_str:
+                # Previous day bars — track the last close as prev_close
+                if close_val is not None:
+                    last_prev_close = close_val
+            elif bar_date == today_str:
+                today_bars.append({
+                    "time": ts.isoformat(),
+                    "open": round(float(row["Open"]), 4) if pd.notna(row["Open"]) else None,
+                    "high": round(float(row["High"]), 4) if pd.notna(row["High"]) else None,
+                    "low": round(float(row["Low"]), 4) if pd.notna(row["Low"]) else None,
+                    "close": close_val,
+                    "volume": int(row["Volume"]) if pd.notna(row["Volume"]) else None,
+                })
+
+        prev_close = last_prev_close
+
+        return {"bars": today_bars, "prev_close": prev_close}
 
     except Exception as exc:
         logger.error("Intraday fetch error for %s: %s", ticker, exc)
-        return []
+        return {"bars": [], "prev_close": None}
 
 
 def get_live_quote(ticker: str) -> dict[str, Any] | None:
     """
-    Get the latest price, daily move %, and volume for a ticker.
-    Uses intraday bars — last bar is the most recent trade.
+    Get the latest price, daily move % vs prev close, and volume for a ticker.
     """
-    bars = fetch_intraday_bars(ticker, interval="1m")
+    result = fetch_intraday_bars(ticker, interval="1m")
+    bars = result.get("bars", [])
+    prev_close = result.get("prev_close")
     if not bars:
         return None
 
     latest = bars[-1]
     first_bar = bars[0]
-
-    prev_close = first_bar.get("open")  # approximate: open of first bar ≈ prev close
     close = latest.get("close")
 
+    # Use real prev_close for daily move; fall back to today's open
+    ref = prev_close or first_bar.get("open")
     daily_move = None
-    if close and prev_close and prev_close != 0:
-        daily_move = round((close - prev_close) / prev_close * 100, 2)
+    if close and ref and ref != 0:
+        daily_move = round((close - ref) / ref * 100, 2)
 
     return {
         "ticker": ticker.upper(),
         "price": close,
+        "prev_close": prev_close,
         "daily_move_pct": daily_move,
         "open": first_bar.get("open"),
         "high": max(b["high"] for b in bars if b.get("high")),
