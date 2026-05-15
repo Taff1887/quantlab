@@ -147,11 +147,17 @@ export default function AnnouncementsPage() {
                   </td>
                   <td className="px-3 py-3 text-sm text-gray-300 hidden md:table-cell">{ann.company_name}</td>
                   <td className="px-3 py-3 max-w-sm">
-                    <Link href={`/announcement/${ann.id}`} className="text-sm text-gray-100 hover:text-white line-clamp-2">
+                    <Link href={`/announcement/${ann.id}`} className="text-sm text-gray-100 hover:text-white font-medium line-clamp-1">
                       {ann.title}
                     </Link>
-                    {ann.summary_short && (
-                      <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{ann.summary_short}</p>
+                    {(ann.why_it_matters || ann.summary_short) && (
+                      <p className="text-xs text-gray-400 mt-0.5 line-clamp-2 leading-relaxed">
+                        {ann.why_it_matters && ann.why_it_matters !== ann.title
+                          ? ann.why_it_matters
+                          : ann.summary_short !== ann.title
+                          ? ann.summary_short
+                          : null}
+                      </p>
                     )}
                   </td>
                   <td className="px-3 py-3 hidden lg:table-cell">

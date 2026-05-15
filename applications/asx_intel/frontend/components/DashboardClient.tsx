@@ -58,6 +58,7 @@ export default function DashboardClient({ top10, allAnnouncements, report }: Pro
   const [selectedTicker, setSelectedTicker] = useState<string>(top10[0]?.ticker ?? "");
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [movers, setMovers] = useState<{ gainers: Mover[]; losers: Mover[] }>({ gainers: [], losers: [] });
+  const [moverNews, setMoverNews] = useState<Record<string, { title: string; summary: string; url: string; publisher: string }[]>>({});
 
   const tickers = Array.from(new Set(top10.map((a) => a.ticker)));
 
@@ -91,16 +92,23 @@ export default function DashboardClient({ top10, allAnnouncements, report }: Pro
     } catch { /* offline */ }
   }, []);
 
+  const fetchMoverNews = useCallback(async () => {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const res = await fetch(`http://localhost:8000/prices/movers/news?date=${today}&threshold=20`);
+      if (!res.ok) return;
+      setMoverNews(await res.json());
+    } catch { /* offline */ }
+  }, []);
+
   useEffect(() => {
     fetchQuotes();
     fetchMovers();
+    fetchMoverNews();
     const id1 = setInterval(fetchQuotes, 60_000);
     const id2 = setInterval(fetchMovers, 120_000);
     return () => { clearInterval(id1); clearInterval(id2); };
-  }, [fetchQuotes, fetchMovers]);
-
-  const watchlist = report?.watchlist_tomorrow ? JSON.parse(report.watchlist_tomorrow) : [];
-  const sectorThemes = report?.sector_themes ? JSON.parse(report.sector_themes) : {};
+  }, [fetchQuotes, fetchMovers, fetchMoverNews]);
 
   return (
     <div className="space-y-6">
@@ -219,101 +227,105 @@ export default function DashboardClient({ top10, allAnnouncements, report }: Pro
         </div>
       )}
 
-      {/* ─── BOTTOM ROW: movers + sector themes + watchlist ───────────── */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        {/* Price movers */}
-        <div className="card xl:col-span-1">
-          <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">
-            Biggest Movers Today
-          </h2>
-          {movers.gainers.length === 0 && movers.losers.length === 0 ? (
-            <p className="text-gray-500 text-xs">Prices update after market opens (10am AEST).</p>
-          ) : (
-            <div className="space-y-3">
-              {/* Gainers */}
-              {movers.gainers.slice(0, 6).map((m) => (
-                <div key={m.ticker} className="flex items-center gap-2">
-                  <button
-                    onClick={() => setSelectedTicker(m.ticker)}
-                    className="font-mono text-xs font-bold text-emerald-400 hover:text-emerald-300 w-12 shrink-0 text-left"
-                  >
-                    {m.ticker}
-                  </button>
-                  <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-emerald-500"
-                      style={{ width: `${Math.min(100, Math.abs(m.daily_move_pct ?? 0) * 3)}%` }}
-                    />
+      {/* ─── BIGGEST MOVERS ───────────────────────────────────────────── */}
+      <div className="card">
+        <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">
+          Biggest Movers Today
+        </h2>
+        {movers.gainers.length === 0 && movers.losers.length === 0 ? (
+          <p className="text-gray-500 text-xs">Prices update after market opens (10am AEST).</p>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-1">
+            {/* Gainers */}
+            <div className="space-y-2">
+              <p className="text-xs text-emerald-400 font-bold uppercase tracking-wider mb-2">▲ Gainers</p>
+              {movers.gainers.slice(0, 8).map((m) => {
+                const news = moverNews[m.ticker];
+                const isBig = Math.abs(m.daily_move_pct ?? 0) >= 20;
+                return (
+                  <div key={m.ticker} className={`rounded-xl p-3 ${isBig ? "bg-emerald-500/5 border border-emerald-500/20" : "bg-gray-800/40"}`}>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setSelectedTicker(m.ticker)}
+                        className="font-mono text-sm font-bold text-emerald-400 hover:text-emerald-300 w-14 shrink-0 text-left"
+                      >
+                        {m.ticker}
+                      </button>
+                      <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-emerald-500"
+                          style={{ width: `${Math.min(100, Math.abs(m.daily_move_pct ?? 0) * 2.5)}%` }}
+                        />
+                      </div>
+                      <MoveChip pct={m.daily_move_pct} />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5 ml-[68px] truncate">{m.company_name}</p>
+                    {/* News for big movers */}
+                    {isBig && news && news[0] && (
+                      <div className="mt-2 ml-[68px] border-l-2 border-emerald-500/40 pl-2">
+                        <a href={news[0].url} target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-gray-200 hover:text-white font-medium line-clamp-2 leading-snug">
+                          {news[0].title}
+                        </a>
+                        {news[0].summary && (
+                          <p className="text-xs text-gray-500 mt-0.5 line-clamp-2 leading-snug">{news[0].summary}</p>
+                        )}
+                        <p className="text-xs text-gray-600 mt-0.5">{news[0].publisher}</p>
+                      </div>
+                    )}
+                    {isBig && !news && (
+                      <p className="text-xs text-gray-600 mt-1.5 ml-[68px] italic">Searching for news…</p>
+                    )}
                   </div>
-                  <MoveChip pct={m.daily_move_pct} />
-                </div>
-              ))}
-              {/* Divider */}
-              {movers.losers.length > 0 && <div className="border-t border-gray-800" />}
-              {/* Losers */}
-              {movers.losers.slice(0, 5).map((m) => (
-                <div key={m.ticker} className="flex items-center gap-2">
-                  <button
-                    onClick={() => setSelectedTicker(m.ticker)}
-                    className="font-mono text-xs font-bold text-red-400 hover:text-red-300 w-12 shrink-0 text-left"
-                  >
-                    {m.ticker}
-                  </button>
-                  <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-red-500"
-                      style={{ width: `${Math.min(100, Math.abs(m.daily_move_pct ?? 0) * 3)}%` }}
-                    />
+                );
+              })}
+            </div>
+
+            {/* Losers */}
+            <div className="space-y-2">
+              <p className="text-xs text-red-400 font-bold uppercase tracking-wider mb-2">▼ Losers</p>
+              {movers.losers.slice(0, 8).map((m) => {
+                const news = moverNews[m.ticker];
+                const isBig = Math.abs(m.daily_move_pct ?? 0) >= 20;
+                return (
+                  <div key={m.ticker} className={`rounded-xl p-3 ${isBig ? "bg-red-500/5 border border-red-500/20" : "bg-gray-800/40"}`}>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setSelectedTicker(m.ticker)}
+                        className="font-mono text-sm font-bold text-red-400 hover:text-red-300 w-14 shrink-0 text-left"
+                      >
+                        {m.ticker}
+                      </button>
+                      <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-red-500"
+                          style={{ width: `${Math.min(100, Math.abs(m.daily_move_pct ?? 0) * 2.5)}%` }}
+                        />
+                      </div>
+                      <MoveChip pct={m.daily_move_pct} />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5 ml-[68px] truncate">{m.company_name}</p>
+                    {isBig && news && news[0] && (
+                      <div className="mt-2 ml-[68px] border-l-2 border-red-500/40 pl-2">
+                        <a href={news[0].url} target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-gray-200 hover:text-white font-medium line-clamp-2 leading-snug">
+                          {news[0].title}
+                        </a>
+                        {news[0].summary && (
+                          <p className="text-xs text-gray-500 mt-0.5 line-clamp-2 leading-snug">{news[0].summary}</p>
+                        )}
+                        <p className="text-xs text-gray-600 mt-0.5">{news[0].publisher}</p>
+                      </div>
+                    )}
+                    {isBig && !news && (
+                      <p className="text-xs text-gray-600 mt-1.5 ml-[68px] italic">Searching for news…</p>
+                    )}
                   </div>
-                  <MoveChip pct={m.daily_move_pct} />
-                </div>
-              ))}
+                );
+              })}
             </div>
-          )}
-        </div>
-
-        {/* Sector themes */}
-        <div className="card xl:col-span-1">
-          <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">
-            Sector Themes
-          </h2>
-          {Object.keys(sectorThemes).length === 0 ? (
-            <p className="text-gray-500 text-xs">Generate daily report to see themes.</p>
-          ) : (
-            <div className="space-y-2.5">
-              {Object.entries(sectorThemes).map(([sector, theme]) => (
-                <div key={sector}>
-                  <Link
-                    href={`/sector/${encodeURIComponent(sector)}`}
-                    className="text-xs font-bold text-emerald-400 hover:text-emerald-300 uppercase tracking-wide"
-                  >
-                    {sector}
-                  </Link>
-                  <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{String(theme)}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Watchlist */}
-        <div className="card xl:col-span-1">
-          <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">
-            Watchlist Tomorrow
-          </h2>
-          {watchlist.length === 0 ? (
-            <p className="text-gray-500 text-xs">Generate daily report to populate.</p>
-          ) : (
-            <ul className="space-y-2">
-              {watchlist.map((item: any, i: number) => (
-                <li key={i} className="flex gap-2 text-xs text-gray-300">
-                  <span className="text-emerald-500 shrink-0 mt-0.5">→</span>
-                  <span>{typeof item === "string" ? item : JSON.stringify(item)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* ─── ALL TODAY'S ANNOUNCEMENTS (compact table) ────────────────── */}

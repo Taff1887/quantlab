@@ -288,6 +288,63 @@ def get_price_movers(
     }
 
 
+@router.get("/prices/movers/news")
+def get_mover_news(
+    date: Optional[str] = Query(None),
+    threshold: float = Query(20.0, description="Min absolute % move to fetch news for"),
+    db: Session = Depends(get_db),
+):
+    """
+    For tickers with abs(daily_move_pct) >= threshold, fetch recent headlines
+    from Yahoo Finance via yfinance. Returns {ticker: [headlines]} dict.
+    """
+    import yfinance as yf
+
+    if date:
+        try:
+            target = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(400, "date must be YYYY-MM-DD")
+    else:
+        target = datetime.utcnow().date()
+
+    big_movers = (
+        db.query(PriceData)
+        .filter(
+            PriceData.date >= datetime(target.year, target.month, target.day),
+            PriceData.date < datetime(target.year, target.month, target.day, 23, 59, 59),
+        )
+        .all()
+    )
+    big_movers = [p for p in big_movers if p.daily_move_pct is not None and abs(p.daily_move_pct) >= threshold]
+
+    result = {}
+    for price in big_movers:
+        try:
+            ticker_obj = yf.Ticker(f"{price.ticker}.AX")
+            raw_news = ticker_obj.news or []
+            headlines = []
+            for item in raw_news[:3]:
+                content = item.get("content", item)  # yfinance v0.2.x vs older
+                title = content.get("title") or item.get("title", "")
+                summary = content.get("summary") or item.get("summary", "")
+                url = (content.get("canonicalUrl") or {}).get("url") or item.get("link", "")
+                publisher = (content.get("provider") or {}).get("displayName") or item.get("publisher", "")
+                if title:
+                    headlines.append({
+                        "title": title,
+                        "summary": summary[:200] if summary else "",
+                        "url": url,
+                        "publisher": publisher,
+                    })
+            if headlines:
+                result[price.ticker] = headlines
+        except Exception as e:
+            logger.debug("News fetch failed for %s: %s", price.ticker, e)
+
+    return result
+
+
 @router.post("/fetch-prices")
 def trigger_price_fetch(
     date: Optional[str] = Query(None, description="YYYY-MM-DD, defaults to today"),
