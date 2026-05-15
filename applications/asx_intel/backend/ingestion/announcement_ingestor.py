@@ -106,12 +106,8 @@ def ingest_date(target_date: date, db: Session, use_mock: bool = False) -> dict[
             errors.append(f"Skipped record with missing ticker/title: {raw}")
             continue
 
-        # --- 2. Download document if no raw_text provided ---
-        if not raw_text and source_url:
-            logger.debug("Downloading document for %s: %s", ticker, source_url)
-            doc_bytes = fetch_announcement_document(source_url)
-            if doc_bytes:
-                raw_text = extract_text_from_bytes(doc_bytes, source_url)
+        # --- 2. Document download is deferred — too slow for bulk ingest.
+        #        PDFs are fetched lazily for high-importance announcements only.
 
         cleaned = _clean_text(raw_text)
 

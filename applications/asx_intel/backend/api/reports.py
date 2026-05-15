@@ -228,6 +228,66 @@ def trigger_daily_report(
     return existing
 
 
+@router.get("/prices/movers")
+def get_price_movers(
+    date: Optional[str] = Query(None, description="YYYY-MM-DD, defaults to today"),
+    limit: int = Query(20, description="Number of movers to return"),
+    db: Session = Depends(get_db),
+):
+    """Return biggest price movers for a date, directly from PriceData table."""
+    if date:
+        try:
+            target = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(400, "date must be YYYY-MM-DD")
+    else:
+        target = datetime.utcnow().date()
+
+    prices = (
+        db.query(PriceData)
+        .filter(
+            PriceData.date >= datetime(target.year, target.month, target.day),
+            PriceData.date < datetime(target.year, target.month, target.day, 23, 59, 59),
+            PriceData.daily_move_pct.isnot(None),
+        )
+        .order_by(PriceData.daily_move_pct.desc())
+        .limit(limit * 2)  # fetch extra so we can split gainers/losers
+        .all()
+    )
+
+    # Also get biggest losers
+    losers = (
+        db.query(PriceData)
+        .filter(
+            PriceData.date >= datetime(target.year, target.month, target.day),
+            PriceData.date < datetime(target.year, target.month, target.day, 23, 59, 59),
+            PriceData.daily_move_pct.isnot(None),
+        )
+        .order_by(PriceData.daily_move_pct.asc())
+        .limit(limit)
+        .all()
+    )
+
+    def price_to_dict(p: PriceData) -> dict:
+        # Try to find company name from announcements
+        ann = db.query(Announcement.company_name).filter_by(ticker=p.ticker).first()
+        return {
+            "ticker": p.ticker,
+            "company_name": ann[0] if ann else p.ticker,
+            "daily_move_pct": p.daily_move_pct,
+            "open": p.open,
+            "close": p.close,
+            "volume": p.volume,
+        }
+
+    return {
+        "date": str(target),
+        "gainers": [price_to_dict(p) for p in prices[:limit] if (p.daily_move_pct or 0) > 0],
+        "losers": [price_to_dict(p) for p in losers[:limit] if (p.daily_move_pct or 0) < 0],
+        "all": [price_to_dict(p) for p in prices[:limit]],
+    }
+
+
 @router.post("/fetch-prices")
 def trigger_price_fetch(
     date: Optional[str] = Query(None, description="YYYY-MM-DD, defaults to today"),

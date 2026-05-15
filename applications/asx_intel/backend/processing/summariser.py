@@ -88,26 +88,101 @@ def _extract_partial(raw: str) -> dict[str, Any]:
 
 
 def _rule_based_summary(text: str, metadata: dict[str, Any]) -> dict[str, Any]:
-    """Minimal rule-based summary when no LLM is available."""
+    """
+    Template-based summary generated from title + metadata alone.
+    Works without LLM and without PDF text.
+    """
     title = metadata.get("title", "")
     ticker = metadata.get("ticker", "")
+    company = metadata.get("company_name", ticker)
     ann_type = metadata.get("announcement_type", "Other")
+    sector = metadata.get("sector", "")
 
-    # Pull first 2 sentences as short summary
-    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
-    short = " ".join(sentences[:2])[:200] if sentences else title
+    # Extract dollar/number figures from the title
+    amounts = re.findall(
+        r"\$[\d,]+\.?\d*\s*(?:billion|million|bn|m\b)?|[\d,]+\.?\d+\s*(?:billion|million|bn|%)",
+        title, re.IGNORECASE
+    )
+    amount_str = amounts[0] if amounts else ""
 
-    # Extract numbers from text
-    numbers = re.findall(r"[\$A-Z]{0,3}[\d,]+\.?\d*\s*(?:billion|million|bn|m|%|mt|kt|dmt)?", text, re.IGNORECASE)
-    key_numbers = list(dict.fromkeys(numbers[:6]))
+    # Build a plain-English one-liner from type + title
+    templates = {
+        "Capital Raising": (
+            f"{company} ({ticker}) is raising capital"
+            + (f" of {amount_str}" if amount_str else "")
+            + f". {title}."
+        ),
+        "Earnings / Trading Update": (
+            f"{company} ({ticker}) has released a {ann_type.lower()}: {title}."
+        ),
+        "Dividend / Buyback": (
+            f"{company} ({ticker}) has announced a dividend or share buyback. {title}."
+        ),
+        "M&A / Takeover": (
+            f"{company} ({ticker}) has announced M&A activity"
+            + (f" involving {amount_str}" if amount_str else "")
+            + f". {title}."
+        ),
+        "Exploration / Drilling Results": (
+            f"{company} ({ticker}) has reported exploration or drilling results. {title}."
+        ),
+        "Management Change": (
+            f"{company} ({ticker}) has announced a change in management or board composition. {title}."
+        ),
+        "Guidance Downgrade": (
+            f"{company} ({ticker}) has revised guidance downward. {title}."
+        ),
+        "Guidance Upgrade": (
+            f"{company} ({ticker}) has upgraded its guidance. {title}."
+        ),
+        "Contract Win": (
+            f"{company} ({ticker}) has won a new contract"
+            + (f" valued at {amount_str}" if amount_str else "")
+            + f". {title}."
+        ),
+        "Regulatory / Legal": (
+            f"{company} ({ticker}) has a regulatory or legal update. {title}."
+        ),
+        "Appendix / Administrative": (
+            f"{company} ({ticker}) has lodged an administrative filing: {title}."
+        ),
+    }
+
+    short = templates.get(ann_type, f"{company} ({ticker}) has released an announcement: {title}.")
+    # Cap at 200 chars
+    short = short[:200]
+
+    # If we have raw text, try to pull a sentence from it
+    if text and len(text) > 50:
+        sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+        if sentences and len(sentences[0]) > 20:
+            short = sentences[0][:200]
+
+    # Extract numbers from title + text
+    numbers = re.findall(
+        r"[\$A-Z]{0,3}[\d,]+\.?\d*\s*(?:billion|million|bn|m|%|mt|kt|dmt)?",
+        (title + " " + text[:500]), re.IGNORECASE
+    )
+    key_numbers = list(dict.fromkeys(n.strip() for n in numbers[:8] if len(n.strip()) > 1))
+
+    why = {
+        "Capital Raising": f"New capital dilutes existing shareholders but may fund growth for {company}.",
+        "Earnings / Trading Update": f"Financial results directly affect {company}'s valuation and investor expectations.",
+        "M&A / Takeover": "M&A activity can be a significant catalyst for both acquirer and target share prices.",
+        "Exploration / Drilling Results": f"Drill results are key value catalysts for {sector} companies like {company}.",
+        "Guidance Downgrade": f"Lowered guidance from {company} typically triggers a sell-off.",
+        "Guidance Upgrade": f"Upgraded guidance from {company} is a positive catalyst.",
+        "Contract Win": f"New contracts provide revenue visibility for {company}.",
+        "Dividend / Buyback": f"Capital returns signal management confidence in {company}'s cash position.",
+    }.get(ann_type, f"Monitoring this {ann_type} announcement from {ticker} for market impact.")
 
     return {
-        "summary_short": short or title,
-        "summary_detailed": f"• {title}\n• No LLM key configured — set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env for full summaries.",
-        "why_it_matters": f"This is a {ann_type} announcement from {ticker}.",
-        "market_impact": "Configure LLM for market impact analysis.",
+        "summary_short": short,
+        "summary_detailed": f"• {title}\n• Type: {ann_type}\n• Sector: {sector}\n• Add an LLM API key for detailed AI-powered summaries.",
+        "why_it_matters": why,
+        "market_impact": "Add OPENAI_API_KEY or ANTHROPIC_API_KEY to .env for AI market impact analysis.",
         "key_numbers": key_numbers,
-        "risks_caveats": "No LLM analysis available.",
+        "risks_caveats": "Full analysis requires LLM configuration.",
     }
 
 

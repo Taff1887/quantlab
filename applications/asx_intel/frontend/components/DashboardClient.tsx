@@ -20,6 +20,14 @@ interface LiveQuote {
   last_updated: string | null;
 }
 
+interface Mover {
+  ticker: string;
+  company_name: string;
+  daily_move_pct: number | null;
+  open: number | null;
+  close: number | null;
+}
+
 interface Props {
   top10: Announcement[];
   allAnnouncements: Announcement[];
@@ -49,6 +57,7 @@ export default function DashboardClient({ top10, allAnnouncements, report }: Pro
   const [quotes, setQuotes] = useState<Record<string, LiveQuote>>({});
   const [selectedTicker, setSelectedTicker] = useState<string>(top10[0]?.ticker ?? "");
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [movers, setMovers] = useState<{ gainers: Mover[]; losers: Mover[] }>({ gainers: [], losers: [] });
 
   const tickers = Array.from(new Set(top10.map((a) => a.ticker)));
 
@@ -59,23 +68,39 @@ export default function DashboardClient({ top10, allAnnouncements, report }: Pro
         `http://localhost:8000/companies/quotes/batch?tickers=${tickers.join(",")}`
       );
       if (!res.ok) return;
-      const data = await res.json();
+      const data: Record<string, LiveQuote> = await res.json();
       setQuotes(data);
       setLastRefresh(new Date());
+      // Auto-select first ticker that has live price data
+      if (selectedTicker === top10[0]?.ticker) {
+        const withData = tickers.find((t) => data[t]?.price != null);
+        if (withData) setSelectedTicker(withData);
+      }
     } catch {
       // market closed / offline — silently retain last values
     }
   }, [tickers.join(",")]);
 
+  const fetchMovers = useCallback(async () => {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const res = await fetch(`http://localhost:8000/prices/movers?date=${today}&limit=15`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setMovers({ gainers: data.gainers ?? [], losers: data.losers ?? [] });
+    } catch { /* offline */ }
+  }, []);
+
   useEffect(() => {
     fetchQuotes();
-    const id = setInterval(fetchQuotes, 60_000);
-    return () => clearInterval(id);
-  }, [fetchQuotes]);
+    fetchMovers();
+    const id1 = setInterval(fetchQuotes, 60_000);
+    const id2 = setInterval(fetchMovers, 120_000);
+    return () => { clearInterval(id1); clearInterval(id2); };
+  }, [fetchQuotes, fetchMovers]);
 
   const watchlist = report?.watchlist_tomorrow ? JSON.parse(report.watchlist_tomorrow) : [];
   const sectorThemes = report?.sector_themes ? JSON.parse(report.sector_themes) : {};
-  const topMoversData = report?.top_movers_json ? JSON.parse(report.top_movers_json) : [];
 
   return (
     <div className="space-y-6">
@@ -199,33 +224,50 @@ export default function DashboardClient({ top10, allAnnouncements, report }: Pro
         {/* Price movers */}
         <div className="card xl:col-span-1">
           <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">
-            Biggest Movers
+            Biggest Movers Today
           </h2>
-          {topMoversData.length === 0 ? (
-            <p className="text-gray-500 text-xs">Run fetch-prices after ingestion.</p>
+          {movers.gainers.length === 0 && movers.losers.length === 0 ? (
+            <p className="text-gray-500 text-xs">Prices update after market opens (10am AEST).</p>
           ) : (
-            <div className="space-y-1.5">
-              {topMoversData.slice(0, 8).map((m: any) => {
-                const liveQ = quotes[m.ticker];
-                const move = liveQ?.daily_move_pct ?? m.daily_move_pct;
-                return (
-                  <div key={m.ticker} className="flex items-center gap-2">
-                    <Link
-                      href={`/company/${m.ticker}`}
-                      className="font-mono text-xs font-bold text-emerald-400 hover:text-emerald-300 w-12 shrink-0"
-                    >
-                      {m.ticker}
-                    </Link>
-                    <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${(move ?? 0) >= 0 ? "bg-emerald-500" : "bg-red-500"}`}
-                        style={{ width: `${Math.min(100, Math.abs(move ?? 0) * 5)}%` }}
-                      />
-                    </div>
-                    <MoveChip pct={move} />
+            <div className="space-y-3">
+              {/* Gainers */}
+              {movers.gainers.slice(0, 6).map((m) => (
+                <div key={m.ticker} className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSelectedTicker(m.ticker)}
+                    className="font-mono text-xs font-bold text-emerald-400 hover:text-emerald-300 w-12 shrink-0 text-left"
+                  >
+                    {m.ticker}
+                  </button>
+                  <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-emerald-500"
+                      style={{ width: `${Math.min(100, Math.abs(m.daily_move_pct ?? 0) * 3)}%` }}
+                    />
                   </div>
-                );
-              })}
+                  <MoveChip pct={m.daily_move_pct} />
+                </div>
+              ))}
+              {/* Divider */}
+              {movers.losers.length > 0 && <div className="border-t border-gray-800" />}
+              {/* Losers */}
+              {movers.losers.slice(0, 5).map((m) => (
+                <div key={m.ticker} className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSelectedTicker(m.ticker)}
+                    className="font-mono text-xs font-bold text-red-400 hover:text-red-300 w-12 shrink-0 text-left"
+                  >
+                    {m.ticker}
+                  </button>
+                  <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-red-500"
+                      style={{ width: `${Math.min(100, Math.abs(m.daily_move_pct ?? 0) * 3)}%` }}
+                    />
+                  </div>
+                  <MoveChip pct={m.daily_move_pct} />
+                </div>
+              ))}
             </div>
           )}
         </div>
